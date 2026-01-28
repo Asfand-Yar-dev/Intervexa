@@ -1,7 +1,16 @@
+"use client"
+
 import Link from "next/link"
 import { Sparkles } from "lucide-react"
+import { toast } from "sonner"
 
 export function Footer() {
+  const showComingSoon = (feature: string) => {
+    toast.info("Coming Soon", {
+      description: `${feature} will be available in a future update.`,
+    })
+  }
+
   return (
     <footer className="border-t border-border/50 bg-secondary/20 py-12">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -29,14 +38,20 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="#pricing" className="text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={() => showComingSoon("Pricing")}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Pricing
-                </Link>
+                </button>
               </li>
               <li>
-                <Link href="#" className="text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={() => showComingSoon("Demo")}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Demo
-                </Link>
+                </button>
               </li>
             </ul>
           </div>
@@ -46,19 +61,28 @@ export function Footer() {
             <h3 className="mb-4 text-sm font-semibold text-foreground">Company</h3>
             <ul className="space-y-3 text-sm">
               <li>
-                <Link href="#" className="text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={() => showComingSoon("About page")}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
                   About
-                </Link>
+                </button>
               </li>
               <li>
-                <Link href="#" className="text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={() => showComingSoon("Blog")}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Blog
-                </Link>
+                </button>
               </li>
               <li>
-                <Link href="#" className="text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={() => showComingSoon("Careers page")}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Careers
-                </Link>
+                </button>
               </li>
             </ul>
           </div>
@@ -68,19 +92,28 @@ export function Footer() {
             <h3 className="mb-4 text-sm font-semibold text-foreground">Legal</h3>
             <ul className="space-y-3 text-sm">
               <li>
-                <Link href="#" className="text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={() => showComingSoon("Privacy policy")}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Privacy
-                </Link>
+                </button>
               </li>
               <li>
-                <Link href="#" className="text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={() => showComingSoon("Terms of service")}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Terms
-                </Link>
+                </button>
               </li>
               <li>
-                <Link href="#" className="text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={() => showComingSoon("Contact page")}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Contact
-                </Link>
+                </button>
               </li>
             </ul>
           </div>

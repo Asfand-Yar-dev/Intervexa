@@ -17,11 +17,13 @@ import {
   Sparkles,
 } from "lucide-react"
 import { mockApi, type InterviewQuestion } from "@/lib/mock-api"
+import { useAuth } from "@/hooks/use-auth"
 
 export default function InterviewSessionPage() {
   const router = useRouter()
   const params = useParams()
   const sessionId = params.id as string
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   const [questions, setQuestions] = useState<InterviewQuestion[]>([])
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
@@ -32,10 +34,13 @@ export default function InterviewSessionPage() {
   const [isMicOn, setIsMicOn] = useState(true)
   const [timeElapsed, setTimeElapsed] = useState(0)
   const [showTip, setShowTip] = useState(true)
+  const [permissionError, setPermissionError] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
 
   const currentQuestion = questions[currentQuestionIndex]
   const progress = questions.length > 0 ? ((currentQuestionIndex + 1) / questions.length) * 100 : 0
@@ -60,6 +65,7 @@ export default function InterviewSessionPage() {
         }
       } catch (error) {
         console.error("Failed to initialize:", error)
+        setPermissionError(true)
       } finally {
         setIsLoading(false)
       }
@@ -70,6 +76,9 @@ export default function InterviewSessionPage() {
       // Cleanup
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop())
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
       }
       if (timerRef.current) {
         clearInterval(timerRef.current)
@@ -101,6 +110,52 @@ export default function InterviewSessionPage() {
 
   // Start recording
   const startRecording = () => {
+    // Clear previous audio chunks
+    audioChunksRef.current = []
+    
+    // Create MediaRecorder from stream
+    if (streamRef.current) {
+      // Extract only audio track from the stream (stream has both video + audio)
+      const audioTracks = streamRef.current.getAudioTracks()
+      if (audioTracks.length === 0) {
+        console.error('No audio track available')
+        return
+      }
+      
+      // Create a new stream with only audio track
+      const audioStream = new MediaStream(audioTracks)
+      
+      // Try to find a supported MIME type
+      const mimeTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/mp4',
+        'audio/mpeg',
+      ]
+      
+      let selectedMimeType: string | undefined
+      for (const mimeType of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+          selectedMimeType = mimeType
+          break
+        }
+      }
+      
+      // Create MediaRecorder with audio-only stream and supported MIME type
+      const options = selectedMimeType ? { mimeType: selectedMimeType } : {}
+      const mediaRecorder = new MediaRecorder(audioStream, options)
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data)
+        }
+      }
+      
+      mediaRecorderRef.current = mediaRecorder
+      mediaRecorder.start(1000) // Collect data every second
+    }
+    
     setIsRecording(true)
     setShowTip(false)
     setTimeElapsed(0)
@@ -116,10 +171,21 @@ export default function InterviewSessionPage() {
       clearInterval(timerRef.current)
     }
 
+    // Stop MediaRecorder and create audio blob
+    let audioBlob: Blob | undefined
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+      // Wait a moment for final data
+      await new Promise(resolve => setTimeout(resolve, 100))
+      if (audioChunksRef.current.length > 0) {
+        audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+      }
+    }
+
     setIsProcessing(true)
     try {
-      // TODO: Replace with actual audio submission
-      await mockApi.submitAnswer(sessionId, currentQuestion.id)
+      // Submit with actual audio blob
+      await mockApi.submitAnswer(sessionId, currentQuestion.id, audioBlob)
     } catch (error) {
       console.error("Failed to submit answer:", error)
     }
@@ -140,6 +206,22 @@ export default function InterviewSessionPage() {
   // Finish interview
   const finishInterview = async () => {
     setIsLoading(true)
+    
+    // Stop recording if active
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    
+    // Stop camera and microphone streams
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop())
+    }
+    
+    // Clear timer
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+    }
+    
     try {
       // TODO: Replace with actual completion
       await mockApi.completeInterview(sessionId)
@@ -156,12 +238,52 @@ export default function InterviewSessionPage() {
     return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
-  if (isLoading) {
+  // Show loading while checking auth or initializing
+  if (authLoading || isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
           <Loader2 className="h-12 w-12 animate-spin text-accent mx-auto" />
           <p className="text-muted-foreground">Preparing your interview...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  if (permissionError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-6 max-w-md px-4">
+          <div className="mx-auto h-20 w-20 rounded-2xl bg-destructive/10 flex items-center justify-center">
+            <VideoOff className="h-10 w-10 text-destructive" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold text-foreground">Camera Access Required</h2>
+            <p className="text-muted-foreground">
+              We need access to your camera and microphone for the interview session. 
+              Please allow access in your browser settings and try again.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3">
+            <Button
+              onClick={() => window.location.reload()}
+              className="bg-accent text-accent-foreground hover:bg-accent/90"
+            >
+              Try Again
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => router.push("/dashboard")}
+              className="bg-transparent"
+            >
+              Return to Dashboard
+            </Button>
+          </div>
         </div>
       </div>
     )
@@ -349,7 +471,7 @@ export default function InterviewSessionPage() {
                 </Button>
               )}
 
-              {!isRecording && !isProcessing && currentQuestionIndex > 0 && (
+              {!isRecording && !isProcessing && (
                 <Button
                   onClick={nextQuestion}
                   variant="outline"

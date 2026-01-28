@@ -10,10 +10,12 @@ import { Button } from "@/components/ui/button"
 import { motion } from "framer-motion"
 import { ArrowLeft, Download, Share2, RotateCcw, Loader2, Trophy, TrendingUp } from "lucide-react"
 import { mockApi, type InterviewFeedback } from "@/lib/mock-api"
+import { useAuth } from "@/hooks/use-auth"
 
 export default function ResultsPage() {
   const params = useParams()
   const sessionId = params.id as string
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   const [isLoading, setIsLoading] = useState(true)
   const [feedback, setFeedback] = useState<InterviewFeedback | null>(null)
@@ -21,8 +23,8 @@ export default function ResultsPage() {
   useEffect(() => {
     async function loadResults() {
       try {
-        // TODO: Replace with actual API call
-        const data = await mockApi.completeInterview(sessionId)
+        // Fetch existing results (not complete interview again)
+        const data = await mockApi.getInterviewResults(sessionId)
         setFeedback(data)
       } catch (error) {
         console.error("Failed to load results:", error)
@@ -33,7 +35,8 @@ export default function ResultsPage() {
     loadResults()
   }, [sessionId])
 
-  if (isLoading) {
+  // Show loading while checking auth or loading data
+  if (authLoading || isLoading) {
     return (
       <DashboardLayout>
         <div className="flex h-[60vh] items-center justify-center">
@@ -44,6 +47,11 @@ export default function ResultsPage() {
         </div>
       </DashboardLayout>
     )
+  }
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
   }
 
   if (!feedback) {

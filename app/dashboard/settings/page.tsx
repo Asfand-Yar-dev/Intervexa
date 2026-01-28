@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
 import { motion } from "framer-motion";
-import { User, Bell, Shield, Palette } from "lucide-react";
+import { User, Bell, Shield, Palette, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function SettingsPage() {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [notifications, setNotifications] = useState({
     email: true,
     practice: false,
@@ -34,6 +36,18 @@ export default function SettingsPage() {
       name: storedName || "",
       email: storedEmail || "",
     });
+
+    // Load notification settings from localStorage
+    if (typeof window !== "undefined") {
+      const storedNotifications = localStorage.getItem("aiInterviewNotificationSettings");
+      if (storedNotifications) {
+        try {
+          setNotifications(JSON.parse(storedNotifications));
+        } catch (e) {
+          console.error("Failed to parse notification settings", e);
+        }
+      }
+    }
   }, []);
 
   const handleProfileChange = (key: "name" | "email", value: string) => {
@@ -48,6 +62,31 @@ export default function SettingsPage() {
     if (trimmedEmail)
       localStorage.setItem("aiInterviewUserEmail", trimmedEmail);
   };
+
+  const handleNotificationChange = (key: keyof typeof notifications) => {
+    const newNotifications = { ...notifications, [key]: !notifications[key] };
+    setNotifications(newNotifications);
+    // Save to localStorage
+    if (typeof window !== "undefined") {
+      localStorage.setItem("aiInterviewNotificationSettings", JSON.stringify(newNotifications));
+    }
+  };
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <DashboardLayout>
@@ -149,9 +188,7 @@ export default function SettingsPage() {
               </div>
               <Switch
                 checked={notifications.email}
-                onCheckedChange={(v) =>
-                  setNotifications((p) => ({ ...p, email: v }))
-                }
+                onCheckedChange={() => handleNotificationChange("email")}
               />
             </div>
             <div className="flex items-center justify-between py-3 border-b border-border/50">
@@ -165,9 +202,7 @@ export default function SettingsPage() {
               </div>
               <Switch
                 checked={notifications.practice}
-                onCheckedChange={(v) =>
-                  setNotifications((p) => ({ ...p, practice: v }))
-                }
+                onCheckedChange={() => handleNotificationChange("practice")}
               />
             </div>
             <div className="flex items-center justify-between py-3">
@@ -179,9 +214,7 @@ export default function SettingsPage() {
               </div>
               <Switch
                 checked={notifications.tips}
-                onCheckedChange={(v) =>
-                  setNotifications((p) => ({ ...p, tips: v }))
-                }
+                onCheckedChange={() => handleNotificationChange("tips")}
               />
             </div>
           </div>

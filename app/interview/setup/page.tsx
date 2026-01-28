@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { motion, AnimatePresence } from "framer-motion"
 import { ArrowRight, X, Sparkles, Briefcase, Code, FileText, Loader2, ArrowLeft } from "lucide-react"
 import { mockApi } from "@/lib/mock-api"
+import { useAuth } from "@/hooks/use-auth"
 
 const suggestedSkills = [
   "React",
@@ -31,6 +32,7 @@ const suggestedSkills = [
 
 export default function InterviewSetupPage() {
   const router = useRouter()
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
     jobTitle: "",
@@ -80,6 +82,22 @@ export default function InterviewSetupPage() {
   }
 
   const isFormValid = formData.jobTitle.trim() && formData.skills.length > 0
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <DashboardLayout>

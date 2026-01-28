@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Sparkles, Loader2, Eye, EyeOff, Mail, Lock, User } from "lucide-react";
 import { motion } from "framer-motion";
 import { mockApi } from "@/lib/mock-api";
+import { toast } from "sonner";
+import { isValidEmail } from "@/lib/utils";
 
 interface AuthFormProps {
   mode: "login" | "signup";
@@ -42,8 +44,24 @@ export function AuthForm({ mode }: AuthFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
     setError("");
+
+    // Validate email format
+    if (!isValidEmail(formData.email)) {
+      setError("Please enter a valid email address");
+      return;
+    }
+
+    // Validate password complexity for signup
+    if (mode === "signup") {
+      const passwordError = validatePassword(formData.password);
+      if (passwordError) {
+        setError(passwordError);
+        return;
+      }
+    }
+
+    setIsLoading(true);
 
     try {
       if (mode === "login") {
@@ -80,6 +98,24 @@ export function AuthForm({ mode }: AuthFormProps) {
       ...prev,
       [e.target.name]: e.target.value,
     }));
+    // Clear error when user starts typing
+    if (error) setError("");
+  };
+
+  const validatePassword = (password: string): string | null => {
+    if (password.length < 8) {
+      return "Password must be at least 8 characters long";
+    }
+    if (!/[A-Z]/.test(password)) {
+      return "Password must contain at least one uppercase letter";
+    }
+    if (!/[a-z]/.test(password)) {
+      return "Password must contain at least one lowercase letter";
+    }
+    if (!/[0-9]/.test(password)) {
+      return "Password must contain at least one number";
+    }
+    return null;
   };
 
   return (
@@ -254,6 +290,7 @@ export function AuthForm({ mode }: AuthFormProps) {
               variant="outline"
               type="button"
               className="h-12 bg-transparent border-border/50 hover:bg-secondary"
+              onClick={() => toast.info("Coming Soon", { description: "Google sign-in will be available in a future update." })}
             >
               <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
                 <path
@@ -279,6 +316,7 @@ export function AuthForm({ mode }: AuthFormProps) {
               variant="outline"
               type="button"
               className="h-12 bg-transparent border-border/50 hover:bg-secondary"
+              onClick={() => toast.info("Coming Soon", { description: "GitHub sign-in will be available in a future update." })}
             >
               <svg
                 className="mr-2 h-4 w-4"

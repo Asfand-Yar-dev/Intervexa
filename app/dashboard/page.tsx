@@ -8,8 +8,10 @@ import { QuickActions } from "@/components/dashboard/quick-actions";
 import { mockApi, type InterviewSession } from "@/lib/mock-api";
 import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function DashboardPage() {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [userName, setUserName] = useState("");
   const [stats, setStats] = useState({
@@ -21,6 +23,15 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function loadDashboard() {
+      // Wait for auth check to complete
+      if (authLoading) return;
+      
+      // Only load data if authenticated
+      if (!isAuthenticated) {
+        setIsLoading(false);
+        return;
+      }
+      
       try {
         // TODO: Replace with actual API call
         const data = await mockApi.getDashboardStats();
@@ -32,7 +43,7 @@ export default function DashboardPage() {
       }
     }
     loadDashboard();
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
     const storedName =
@@ -44,7 +55,8 @@ export default function DashboardPage() {
     }
   }, []);
 
-  if (isLoading) {
+  // Show loading while checking auth or loading data
+  if (authLoading || isLoading) {
     return (
       <DashboardLayout>
         <div className="flex h-[60vh] items-center justify-center">
@@ -52,6 +64,11 @@ export default function DashboardPage() {
         </div>
       </DashboardLayout>
     );
+  }
+
+  // Don't render if not authenticated (redirect is happening)
+  if (!isAuthenticated) {
+    return null;
   }
 
   return (

@@ -5,6 +5,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Menu, X, Sparkles } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
+import { toast } from "sonner"
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
@@ -37,9 +38,12 @@ export function Navbar() {
             >
               How it Works
             </Link>
-            <Link href="#pricing" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+            <button
+              onClick={() => toast.info("Coming Soon", { description: "Pricing information will be available soon." })}
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
               Pricing
-            </Link>
+            </button>
           </div>
 
           {/* Desktop Auth Buttons */}
@@ -88,13 +92,15 @@ export function Navbar() {
               >
                 How it Works
               </Link>
-              <Link
-                href="#pricing"
+              <button
+                onClick={() => {
+                  toast.info("Coming Soon", { description: "Pricing information will be available soon." })
+                  setIsOpen(false)
+                }}
                 className="block text-sm text-muted-foreground transition-colors hover:text-foreground"
-                onClick={() => setIsOpen(false)}
               >
                 Pricing
-              </Link>
+              </button>
               <div className="flex flex-col gap-3 pt-4">
                 <Link href="/login">
                   <Button variant="outline" className="w-full bg-transparent">

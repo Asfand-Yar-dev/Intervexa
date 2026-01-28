@@ -213,4 +213,32 @@ export const mockApi = {
         "Overall, you demonstrated strong interview skills with clear communication and solid technical knowledge. Your answers were well-structured and showed good understanding of the role requirements. To further improve, focus on reducing filler words and maintaining consistent eye contact with the camera. Consider preparing more specific examples from your experience that directly relate to the job requirements.",
     }
   },
+
+  // Fetch existing interview results (separate from completing)
+  async getInterviewResults(sessionId: string): Promise<InterviewFeedback> {
+    await delay(500)
+    // TODO: Replace with actual results fetch from database
+    console.log("Fetching results for session:", sessionId)
+    return {
+      overallScore: 85,
+      confidenceScore: 82,
+      clarityScore: 88,
+      technicalScore: 84,
+      bodyLanguageScore: 79,
+      voiceToneScore: 86,
+      strengths: [
+        "Clear and articulate communication",
+        "Strong technical knowledge demonstrated",
+        "Good use of specific examples",
+        "Confident body posture throughout",
+      ],
+      improvements: [
+        "Could provide more detailed follow-up examples",
+        "Occasional filler words detected",
+        "Eye contact could be more consistent",
+      ],
+      detailedFeedback:
+        "Overall, you demonstrated strong interview skills with clear communication and solid technical knowledge. Your answers were well-structured and showed good understanding of the role requirements. To further improve, focus on reducing filler words and maintaining consistent eye contact with the camera. Consider preparing more specific examples from your experience that directly relate to the job requirements.",
+    }
+  },
 }
