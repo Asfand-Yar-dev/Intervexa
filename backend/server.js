@@ -18,6 +18,10 @@ app.get("/", (req, res) => {
   res.send("Backend Running");
 });
 
+/*app.get("/", (req, res) => {
+  throw new Error("This is a fake crash!"); // <--- BREAK IT
+});*/
+
 // 2. API Routes
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/interviews", require("./routes/interviewRoutes"));
@@ -29,10 +33,10 @@ app.use("/api/answers", require("./routes/answerRoutes"));
 //Error Handler
 app.use((err, req, res, next) => {
   logger.error(err.stack);
-  res.status(500).json({ 
-    success: false, 
-    message: "Server Error", 
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined 
+  res.status(500).json({
+    success: false,
+    message: "Server Error",
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
