@@ -1,0 +1,28 @@
+backend/
+│
+├── models/
+│   ├── User.js
+│   ├── Profile.js
+│   ├── InterviewSession.js
+│   ├── Question.js
+│   ├── Answer.js
+│   ├── NLPEvaluation.js
+│   ├── FacialAnalysis.js
+│   ├── VocalAnalysis.js
+│   ├── interviewers          
+│   ├── userinterviewerselections 
+│   ├── schedules       
+│   └── paymentdetails   
+│
+├── routes/
+│   └── userRoutes.js
+│   └── questionRoutes.js
+│   └── interviewRoutes.js
+│   └── answerRoutes.js
+│
+├── config/
+│   └── db.js
+│   └── logger.js
+│
+├── server.js
+└── .env
