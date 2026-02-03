@@ -6,4 +6,5 @@ const answerSchema = new mongoose.Schema({
   answer_text: String
 }, { timestamps: true });
 
+
 module.exports = mongoose.model("Answer", answerSchema);
