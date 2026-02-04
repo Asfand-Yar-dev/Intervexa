@@ -1,18 +1,20 @@
 # =============================================================================
 # AI INTERVIEW SYSTEM - ROOT GITIGNORE
 # =============================================================================
-# This file ignores files/folders for the entire project (frontend + backend)
+# This file covers both frontend (Next.js) and backend (Node.js/Express)
 
 # =============================================================================
 # DEPENDENCIES
 # =============================================================================
-# Node modules (both frontend and backend)
 node_modules/
 **/node_modules/
 
-# Package manager locks (optional - some teams track these)
-# package-lock.json
-# yarn.lock
+# =============================================================================
+# NEXT.JS (FRONTEND)
+# =============================================================================
+.next/
+out/
+build/
 
 # =============================================================================
 # ENVIRONMENT FILES
@@ -27,13 +29,7 @@ node_modules/
 # =============================================================================
 # BUILD OUTPUT
 # =============================================================================
-# Next.js
-.next/
-out/
-
-# Generic build folders
 dist/
-build/
 .cache/
 
 # =============================================================================
@@ -43,6 +39,7 @@ build/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
 logs/
 combined.log
 error.log
@@ -90,8 +87,8 @@ temp/
 next-env.d.ts
 
 # =============================================================================
-# MISC
+# VERCEL & MISC
 # =============================================================================
-.eslintcache
 .vercel
 *.pem
+.eslintcache
