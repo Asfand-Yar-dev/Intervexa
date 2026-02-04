@@ -1,27 +1,272 @@
-const mongoose = require("mongoose");
+/**
+ * =============================================================================
+ * USER MODEL
+ * =============================================================================
+ * 
+ * Handles user data with secure password hashing.
+ * Supports both email/password authentication AND Google OAuth.
+ * 
+ * AUTHENTICATION PROVIDERS:
+ * - 'local': Traditional email/password registration
+ * - 'google': Google Sign-In (OAuth 2.0)
+ * 
+ * @author FYP Team
+ * @version 1.1.0 (Added Google OAuth support)
+ * =============================================================================
+ */
+
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const { USER_ROLES } = require('../config/constants');
+
+/**
+ * Authentication Provider Types
+ * Used to identify how the user registered/logs in
+ */
+const AUTH_PROVIDERS = {
+  LOCAL: 'local',   // Email/password
+  GOOGLE: 'google'  // Google OAuth
+};
 
 const UserSchema = new mongoose.Schema({
+  // ========================
+  // BASIC USER INFORMATION
+  // ========================
   name: {
     type: String,
-    required: true
+    required: [true, 'Name is required'],
+    trim: true,
+    minlength: [2, 'Name must be at least 2 characters'],
+    maxlength: [50, 'Name cannot exceed 50 characters']
   },
+  
   email: {
     type: String,
-    required: true,
-    unique: true
+    required: [true, 'Email is required'],
+    unique: true,
+    lowercase: true,
+    trim: true,
+    match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email']
   },
+  
+  // ========================
+  // AUTHENTICATION FIELDS
+  // ========================
+  
+  /**
+   * Password field - only required for 'local' auth provider
+   * For Google OAuth users, this will be undefined
+   */
   password: {
     type: String,
-    required: true
+    minlength: [6, 'Password must be at least 6 characters'],
+    select: false, // Don't include password in queries by default
+    required: function() {
+      // Password is only required for local authentication
+      return this.authProvider === AUTH_PROVIDERS.LOCAL;
+    }
   },
+  
+  /**
+   * Authentication Provider
+   * Identifies how the user was registered
+   * - 'local': Email and password registration
+   * - 'google': Google Sign-In
+   */
+  authProvider: {
+    type: String,
+    enum: Object.values(AUTH_PROVIDERS),
+    default: AUTH_PROVIDERS.LOCAL
+  },
+  
+  /**
+   * Google OAuth specific fields
+   * Only populated for users who signed in with Google
+   */
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true // Allows null values while maintaining uniqueness for non-null
+  },
+  
+  /**
+   * Profile picture URL
+   * Typically populated from Google profile for OAuth users
+   */
+  profilePicture: {
+    type: String,
+    default: null
+  },
+  
+  // ========================
+  // USER ROLE & STATUS
+  // ========================
   user_role: {
     type: String,
-    default: "user"
+    enum: Object.values(USER_ROLES),
+    default: USER_ROLES.USER
   },
-  created_at: {
-    type: Date,
-    default: Date.now
+  
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  
+  /**
+   * Email verification status
+   * Google OAuth users are automatically verified
+   */
+  isEmailVerified: {
+    type: Boolean,
+    default: false
+  },
+  
+  lastLogin: {
+    type: Date
+  }
+}, {
+  timestamps: true // Adds createdAt and updatedAt automatically
+});
+
+// =============================================================================
+// MIDDLEWARE
+// =============================================================================
+
+/**
+ * Pre-save middleware to hash password
+ * Only hashes if password is modified and auth provider is 'local'
+ */
+UserSchema.pre('save', async function(next) {
+  // Only hash the password if:
+  // 1. It's a local auth user
+  // 2. The password field exists and is modified
+  if (this.authProvider !== AUTH_PROVIDERS.LOCAL || !this.isModified('password')) {
+    return next();
+  }
+
+  // Skip if password is not provided (e.g., Google OAuth user)
+  if (!this.password) {
+    return next();
+  }
+
+  try {
+    const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 10;
+    this.password = await bcrypt.hash(this.password, saltRounds);
+    next();
+  } catch (error) {
+    next(error);
   }
 });
 
-module.exports = mongoose.model("User", UserSchema);
+// =============================================================================
+// INSTANCE METHODS
+// =============================================================================
+
+/**
+ * Compare provided password with stored hashed password
+ * 
+ * @param {string} candidatePassword - Password to compare
+ * @returns {Promise<boolean>} - True if passwords match
+ */
+UserSchema.methods.comparePassword = async function(candidatePassword) {
+  // If user registered with Google, they don't have a password
+  if (this.authProvider === AUTH_PROVIDERS.GOOGLE) {
+    return false;
+  }
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+/**
+ * Get user data without sensitive fields
+ * Safe to send in API responses
+ * 
+ * @returns {Object} - User object without password and internal fields
+ */
+UserSchema.methods.toSafeObject = function() {
+  const userObject = this.toObject();
+  delete userObject.password;
+  delete userObject.__v;
+  return userObject;
+};
+
+// =============================================================================
+// STATIC METHODS
+// =============================================================================
+
+/**
+ * Find user by email (including password for authentication)
+ * Used for local (email/password) login
+ * 
+ * @param {string} email - User's email address
+ * @returns {Promise<User>} - User document with password field
+ */
+UserSchema.statics.findByEmail = function(email) {
+  return this.findOne({ email: email.toLowerCase() }).select('+password');
+};
+
+/**
+ * Find user by Google ID
+ * Used for Google OAuth login
+ * 
+ * @param {string} googleId - Google's unique user ID
+ * @returns {Promise<User>} - User document
+ */
+UserSchema.statics.findByGoogleId = function(googleId) {
+  return this.findOne({ googleId });
+};
+
+/**
+ * Find or create user from Google profile
+ * If user exists, updates their info. If not, creates new user.
+ * 
+ * @param {Object} googleProfile - Google user profile data
+ * @param {string} googleProfile.googleId - Google's unique user ID
+ * @param {string} googleProfile.email - User's email from Google
+ * @param {string} googleProfile.name - User's name from Google
+ * @param {string} googleProfile.picture - Profile picture URL
+ * @returns {Promise<{user: User, isNewUser: boolean}>}
+ */
+UserSchema.statics.findOrCreateFromGoogle = async function(googleProfile) {
+  const { googleId, email, name, picture } = googleProfile;
+  
+  // First, try to find user by Google ID
+  let user = await this.findOne({ googleId });
+  
+  if (user) {
+    // User exists with this Google ID - update last login
+    user.lastLogin = new Date();
+    await user.save();
+    return { user, isNewUser: false };
+  }
+  
+  // Check if user exists with this email (maybe registered with email/password)
+  user = await this.findOne({ email: email.toLowerCase() });
+  
+  if (user) {
+    // User exists with email - link Google account
+    user.googleId = googleId;
+    user.authProvider = AUTH_PROVIDERS.GOOGLE;
+    user.isEmailVerified = true; // Google emails are verified
+    user.profilePicture = picture || user.profilePicture;
+    user.lastLogin = new Date();
+    await user.save();
+    return { user, isNewUser: false };
+  }
+  
+  // No user exists - create new user
+  user = await this.create({
+    name,
+    email: email.toLowerCase(),
+    googleId,
+    authProvider: AUTH_PROVIDERS.GOOGLE,
+    profilePicture: picture,
+    isEmailVerified: true, // Google emails are verified
+    lastLogin: new Date()
+  });
+  
+  return { user, isNewUser: true };
+};
+
+// Export model and constants
+module.exports = mongoose.model('User', UserSchema);
+module.exports.AUTH_PROVIDERS = AUTH_PROVIDERS;

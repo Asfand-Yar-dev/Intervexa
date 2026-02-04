@@ -1,34 +1,61 @@
-/*const mongoose = require("mongoose");
+/**
+ * Question Model
+ * Stores interview questions with categories and difficulty levels
+ */
+
+const mongoose = require('mongoose');
+const { DIFFICULTY_LEVELS } = require('../config/constants');
 
 const questionSchema = new mongoose.Schema({
-  session_id: { type: mongoose.Schema.Types.ObjectId, ref: "InterviewSession" },
-  question_text: String
-}, { timestamps: true });
-
-module.exports = mongoose.model("Question", questionSchema);*/
-
-const mongoose = require("mongoose");
-
-const questionSchema = new mongoose.Schema({
-  // 1. Rename this to match what you usually send, or keep it consistent
   questionText: { 
     type: String, 
-    required: true 
+    required: [true, 'Question text is required'],
+    trim: true,
+    minlength: [10, 'Question must be at least 10 characters']
   },
-  // 2. Add these missing fields so they don't get ignored
   category: { 
     type: String,
-    required: true
+    required: [true, 'Category is required'],
+    trim: true
   },
   difficulty: { 
     type: String,
-    default: "Medium"
+    enum: {
+      values: Object.values(DIFFICULTY_LEVELS),
+      message: 'Difficulty must be Easy, Medium, or Hard'
+    },
+    default: DIFFICULTY_LEVELS.MEDIUM
   },
-  // Optional: Keep session_id if questions belong to specific sessions
   session_id: { 
     type: mongoose.Schema.Types.ObjectId, 
-    ref: "InterviewSession" 
+    ref: 'InterviewSession'
+  },
+  expectedAnswer: {
+    type: String,
+    trim: true
+  },
+  keywords: [{
+    type: String,
+    trim: true
+  }],
+  timeLimit: {
+    type: Number,
+    default: 120, // seconds
+    min: 30,
+    max: 600
+  },
+  isActive: {
+    type: Boolean,
+    default: true
   }
-}, { timestamps: true });
+}, { 
+  timestamps: true 
+});
 
-module.exports = mongoose.model("Question", questionSchema);
+/**
+ * Index for efficient category-based queries
+ */
+questionSchema.index({ category: 1, difficulty: 1 });
+questionSchema.index({ isActive: 1 });
+
+module.exports = mongoose.model('Question', questionSchema);
