@@ -1,28 +1,154 @@
+================================================================================
+AI INTERVIEW SYSTEM - BACKEND FOLDER STRUCTURE
+================================================================================
+Version: 1.0.0
+Last Updated: February 2026
+
+================================================================================
+DIRECTORY STRUCTURE
+================================================================================
+
 backend/
 │
-├── models/
-│   ├── User.js
-│   ├── Profile.js
-│   ├── InterviewSession.js
-│   ├── Question.js
-│   ├── Answer.js
-│   ├── NLPEvaluation.js
-│   ├── FacialAnalysis.js
-│   ├── VocalAnalysis.js
-│   ├── interviewers          
-│   ├── userinterviewerselections 
-│   ├── schedules       
-│   └── paymentdetails   
+├── config/                         # Configuration files
+│   ├── constants.js                # Application constants & enums
+│   ├── db.js                       # MongoDB connection setup
+│   ├── logger.js                   # Winston logger configuration
+│   └── index.js                    # Config exports
 │
-├── routes/
-│   └── userRoutes.js
-│   └── questionRoutes.js
-│   └── interviewRoutes.js
-│   └── answerRoutes.js
+├── controllers/                    # Business logic layer
+│   ├── authController.js           # Authentication logic (register/login)
+│   └── index.js                    # Controller exports
 │
-├── config/
-│   └── db.js
-│   └── logger.js
+├── middleware/                     # Express middleware
+│   ├── auth.js                     # JWT authentication middleware
+│   ├── errorHandler.js             # Global error handling
+│   ├── validation.js               # Input validation rules
+│   └── index.js                    # Middleware exports
 │
-├── server.js
-└── .env
+├── models/                         # MongoDB schemas
+│   ├── User.js                     # User model (with password hashing)
+│   ├── Profile.js                  # Extended user profile
+│   ├── InterviewSession.js         # Interview session tracking
+│   ├── Question.js                 # Interview questions
+│   ├── Answer.js                   # User answers
+│   ├── NLPEvaluation.js            # NLP analysis results
+│   ├── FacialAnalysis.js           # Facial expression analysis
+│   ├── VocalAnalysis.js            # Voice analysis results
+│   ├── Interviewer.js              # AI interviewer configs
+│   ├── InterviewerSelection.js     # User-interviewer mapping
+│   ├── Schedule.js                 # Interview scheduling
+│   ├── PaymentDetails.js           # Payment transactions
+│   └── index.js                    # Model exports
+│
+├── routes/                         # API route definitions
+│   ├── userRoutes.js               # Auth & user endpoints
+│   ├── interviewRoutes.js          # Interview session endpoints
+│   ├── questionRoutes.js           # Question CRUD endpoints
+│   └── answerRoutes.js             # Answer submission endpoints
+│
+├── server.js                       # Application entry point
+├── .env                            # Environment variables (not in git)
+├── .env.example                    # Environment template
+├── .gitignore                      # Git ignore patterns
+├── package.json                    # Dependencies & scripts
+├── postman_collection.json         # Postman API collection
+├── API_TESTING.md                  # API testing documentation
+└── README.md                       # Project documentation
+
+================================================================================
+FILE DESCRIPTIONS
+================================================================================
+
+CONFIG FILES:
+-------------
+constants.js    - Defines enums for roles, statuses, HTTP codes, etc.
+db.js           - MongoDB connection with retry logic and event handlers
+logger.js       - Winston logger setup for file and console logging
+
+CONTROLLERS:
+------------
+authController.js - Handles all authentication business logic:
+                    • register() - Create new user with hashed password
+                    • login() - Authenticate and return JWT token
+                    • googleSignIn() - Verify Google token and login/register
+                    • getProfile() - Get current user's profile
+                    • updateProfile() - Update user's name
+                    • changePassword() - Change user's password
+                    • verifyToken() - Validate JWT token
+
+MIDDLEWARE:
+-----------
+auth.js         - JWT verification middleware:
+                  • authenticate() - Verify token for protected routes
+                  • authorize() - Role-based access control
+                  • optionalAuth() - Optional authentication
+
+errorHandler.js - Error handling utilities:
+                  • ApiError - Custom error class
+                  • asyncHandler() - Async wrapper for routes
+                  • notFoundHandler() - 404 handler
+                  • errorHandler() - Global error handler
+
+validation.js   - Input validation using express-validator:
+                  • registerValidation - Validate registration data
+                  • loginValidation - Validate login data
+                  • submitAnswerValidation - Validate answer submission
+
+MODELS:
+-------
+User.js         - User schema with:
+                  • Password hashing (bcrypt pre-save hook)
+                  • comparePassword() method
+                  • toSafeObject() method (excludes password)
+                  • findByEmail() static method
+                  • findByGoogleId() static method
+                  • findOrCreateFromGoogle() for OAuth
+
+ROUTES:
+-------
+userRoutes.js   - Authentication endpoints:
+                  • POST /register - Create account (email/password)
+                  • POST /login - Login with email/password
+                  • POST /google - Sign in with Google OAuth
+                  • GET /me - Get profile (protected)
+                  • PUT /me - Update profile (protected)
+                  • PUT /change-password - Change password (protected)
+                  • GET /verify-token - Validate token (protected)
+
+================================================================================
+AUTHENTICATION FLOW
+================================================================================
+
+1. REGISTRATION (Email/Password):
+   Client -> POST /api/users/register -> Validate Input -> Hash Password ->
+   Save to DB -> Generate JWT -> Return Token
+
+2. LOGIN (Email/Password):
+   Client -> POST /api/users/login -> Validate Input -> Find User ->
+   Compare Password -> Generate JWT -> Return Token
+
+3. GOOGLE SIGN-IN (OAuth 2.0):
+   Client -> Google Sign-In Button -> Google Auth Popup -> 
+   Get ID Token from Google -> POST /api/users/google with ID Token ->
+   Verify Token with Google -> Find/Create User -> Generate JWT -> Return Token
+
+4. PROTECTED REQUEST:
+   Client -> Request with "Authorization: Bearer <token>" ->
+   auth.js middleware verifies token -> Extract user ID ->
+   Attach to req.user -> Continue to route handler
+
+================================================================================
+SECURITY FEATURES
+================================================================================
+
+✓ Password Hashing: bcrypt with configurable salt rounds
+✓ JWT Authentication: Signed tokens with expiration
+✓ Google OAuth 2.0: Secure third-party authentication
+✓ Input Validation: express-validator on all endpoints
+✓ Rate Limiting: Prevents brute force attacks (100 req/15min)
+✓ Security Headers: Helmet middleware
+✓ CORS: Configurable allowed origins
+✓ Error Handling: No stack traces in production
+
+================================================================================
