@@ -1,17 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
 import { motion } from "framer-motion";
-import { User, Bell, Shield, Palette, Loader2 } from "lucide-react";
+import { User, Bell, Shield, Palette, Loader2, Check, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, useRequireAuth } from "@/contexts/auth-context";
+import { authApi } from "@/lib/api";
+import { toast } from "sonner";
+import { useTheme } from "next-themes";
 
 export default function SettingsPage() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user, updateProfile } = useRequireAuth() as ReturnType<typeof useAuth> & { isAuthenticated: boolean };
+  const { theme, setTheme } = useTheme();
+  
+  const [isSaving, setIsSaving] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  
   const [notifications, setNotifications] = useState({
     email: true,
     practice: false,
@@ -19,57 +27,86 @@ export default function SettingsPage() {
   });
 
   const [profile, setProfile] = useState({
-    name: "",
-    email: "",
+    name: user?.name || "",
   });
 
-  useEffect(() => {
-    const storedName =
-      typeof window !== "undefined"
-        ? localStorage.getItem("aiInterviewUserName")
-        : null;
-    const storedEmail =
-      typeof window !== "undefined"
-        ? localStorage.getItem("aiInterviewUserEmail")
-        : null;
-    setProfile({
-      name: storedName || "",
-      email: storedEmail || "",
-    });
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
 
-    // Load notification settings from localStorage
-    if (typeof window !== "undefined") {
-      const storedNotifications = localStorage.getItem("aiInterviewNotificationSettings");
-      if (storedNotifications) {
-        try {
-          setNotifications(JSON.parse(storedNotifications));
-        } catch (e) {
-          console.error("Failed to parse notification settings", e);
-        }
-      }
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+
+  // Update profile when user data loads
+  useState(() => {
+    if (user) {
+      setProfile({ name: user.name });
     }
-  }, []);
+  });
 
-  const handleProfileChange = (key: "name" | "email", value: string) => {
+  const handleProfileChange = (key: "name", value: string) => {
     setProfile((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSaveProfile = () => {
-    if (typeof window === "undefined") return;
-    const trimmedName = profile.name.trim();
-    const trimmedEmail = profile.email.trim();
-    if (trimmedName) localStorage.setItem("aiInterviewUserName", trimmedName);
-    if (trimmedEmail)
-      localStorage.setItem("aiInterviewUserEmail", trimmedEmail);
+  const handleSaveProfile = async () => {
+    if (!profile.name.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await updateProfile({ name: profile.name.trim() });
+      toast.success("Profile updated successfully!");
+    } catch (error) {
+      toast.error("Failed to update profile", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!passwordData.currentPassword || !passwordData.newPassword) {
+      toast.error("Please fill in all password fields");
+      return;
+    }
+
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      toast.error("New passwords do not match");
+      return;
+    }
+
+    if (passwordData.newPassword.length < 6) {
+      toast.error("New password must be at least 6 characters");
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      await authApi.changePassword(passwordData.currentPassword, passwordData.newPassword);
+      toast.success("Password changed successfully!");
+      setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      setShowPasswordForm(false);
+    } catch (error) {
+      toast.error("Failed to change password", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   const handleNotificationChange = (key: keyof typeof notifications) => {
     const newNotifications = { ...notifications, [key]: !notifications[key] };
     setNotifications(newNotifications);
-    // Save to localStorage
+    // Save to localStorage for now (backend notification settings can be added later)
     if (typeof window !== "undefined") {
       localStorage.setItem("aiInterviewNotificationSettings", JSON.stringify(newNotifications));
     }
+    toast.success("Notification preferences saved");
   };
 
   // Show loading while checking auth
@@ -87,6 +124,8 @@ export default function SettingsPage() {
   if (!isAuthenticated) {
     return null;
   }
+
+  const isGoogleUser = user?.authProvider === 'google';
 
   return (
     <DashboardLayout>
@@ -133,6 +172,7 @@ export default function SettingsPage() {
                   value={profile.name}
                   onChange={(e) => handleProfileChange("name", e.target.value)}
                   className="bg-secondary/50 border-border/50"
+                  placeholder="Enter your name"
                 />
               </div>
               <div className="space-y-2">
@@ -140,17 +180,43 @@ export default function SettingsPage() {
                 <Input
                   id="email"
                   type="email"
-                  value={profile.email}
-                  onChange={(e) => handleProfileChange("email", e.target.value)}
-                  className="bg-secondary/50 border-border/50"
+                  value={user?.email || ""}
+                  disabled
+                  className="bg-secondary/50 border-border/50 opacity-60"
                 />
+                <p className="text-xs text-muted-foreground">Email cannot be changed</p>
               </div>
             </div>
+            
+            {/* Auth Provider Badge */}
+            {isGoogleUser && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-secondary/30 border border-border/30">
+                <svg className="h-4 w-4" viewBox="0 0 24 24">
+                  <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                  <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                </svg>
+                <span className="text-sm text-muted-foreground">Signed in with Google</span>
+              </div>
+            )}
+
             <Button
               onClick={handleSaveProfile}
+              disabled={isSaving}
               className="bg-accent text-accent-foreground hover:bg-accent/90"
             >
-              Save Changes
+              {isSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Check className="mr-2 h-4 w-4" />
+                  Save Changes
+                </>
+              )}
             </Button>
           </div>
         </motion.div>
@@ -242,18 +308,86 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-4">
-            <Button
-              variant="outline"
-              className="bg-transparent border-border/50"
-            >
-              Change Password
-            </Button>
-            <Button
-              variant="outline"
-              className="bg-transparent border-border/50 text-destructive hover:text-destructive"
-            >
-              Delete Account
-            </Button>
+            {!isGoogleUser && (
+              <>
+                {!showPasswordForm ? (
+                  <Button
+                    variant="outline"
+                    className="bg-transparent border-border/50"
+                    onClick={() => setShowPasswordForm(true)}
+                  >
+                    Change Password
+                  </Button>
+                ) : (
+                  <div className="space-y-4 p-4 rounded-xl bg-secondary/20 border border-border/30">
+                    <div className="space-y-2">
+                      <Label htmlFor="currentPassword">Current Password</Label>
+                      <Input
+                        id="currentPassword"
+                        type="password"
+                        value={passwordData.currentPassword}
+                        onChange={(e) => setPasswordData(prev => ({ ...prev, currentPassword: e.target.value }))}
+                        className="bg-secondary/50 border-border/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="newPassword">New Password</Label>
+                      <Input
+                        id="newPassword"
+                        type="password"
+                        value={passwordData.newPassword}
+                        onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
+                        className="bg-secondary/50 border-border/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                      <Input
+                        id="confirmPassword"
+                        type="password"
+                        value={passwordData.confirmPassword}
+                        onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                        className="bg-secondary/50 border-border/50"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleChangePassword}
+                        disabled={isChangingPassword}
+                        className="bg-accent text-accent-foreground hover:bg-accent/90"
+                      >
+                        {isChangingPassword ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Changing...
+                          </>
+                        ) : (
+                          "Update Password"
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setShowPasswordForm(false);
+                          setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" });
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {isGoogleUser && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-secondary/30 border border-border/30">
+                <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">
+                  Password management is handled by Google
+                </span>
+              </div>
+            )}
           </div>
         </motion.div>
 
@@ -280,17 +414,25 @@ export default function SettingsPage() {
 
           <div className="flex gap-3">
             <Button
-              variant="outline"
-              className="bg-transparent border-border/50"
+              variant={theme === "dark" ? "default" : "outline"}
+              className={theme === "dark" ? "bg-accent text-accent-foreground" : "bg-transparent border-border/50"}
+              onClick={() => setTheme("dark")}
             >
               Dark Mode
             </Button>
             <Button
-              variant="outline"
-              className="bg-transparent border-border/50 opacity-50"
-              disabled
+              variant={theme === "light" ? "default" : "outline"}
+              className={theme === "light" ? "bg-accent text-accent-foreground" : "bg-transparent border-border/50"}
+              onClick={() => setTheme("light")}
             >
-              Light Mode (Coming Soon)
+              Light Mode
+            </Button>
+            <Button
+              variant={theme === "system" ? "default" : "outline"}
+              className={theme === "system" ? "bg-accent text-accent-foreground" : "bg-transparent border-border/50"}
+              onClick={() => setTheme("system")}
+            >
+              System
             </Button>
           </div>
         </motion.div>

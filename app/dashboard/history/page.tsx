@@ -4,10 +4,10 @@ import { Suspense } from "react"
 import { HistoryContent } from "@/components/dashboard/history-content"
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { Loader2 } from "lucide-react"
-import { useAuth } from "@/hooks/use-auth"
+import { useRequireAuth } from "@/contexts/auth-context"
 
 export default function HistoryPage() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useRequireAuth()
 
   // Show loading while checking auth
   if (authLoading) {
@@ -17,12 +17,12 @@ export default function HistoryPage() {
           <Loader2 className="h-8 w-8 animate-spin text-accent" />
         </div>
       </DashboardLayout>
-    );
+    )
   }
 
   // Don't render if not authenticated
   if (!isAuthenticated) {
-    return null;
+    return null
   }
 
   return (

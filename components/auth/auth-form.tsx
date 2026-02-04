@@ -1,26 +1,25 @@
 "use client";
 
 import type React from "react";
-
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sparkles, Loader2, Eye, EyeOff, Mail, Lock, User } from "lucide-react";
 import { motion } from "framer-motion";
-import { mockApi } from "@/lib/mock-api";
 import { toast } from "sonner";
 import { isValidEmail } from "@/lib/utils";
+import { useAuth } from "@/contexts/auth-context";
 
 interface AuthFormProps {
   mode: "login" | "signup";
 }
 
 export function AuthForm({ mode }: AuthFormProps) {
-  const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
+  const { login, signup, googleSignIn, isLoading: authLoading, error: authError, clearError } = useAuth();
+  
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
 
@@ -30,21 +29,10 @@ export function AuthForm({ mode }: AuthFormProps) {
     password: "",
   });
 
-  const persistProfile = (name: string, email: string) => {
-    if (typeof window === "undefined") return;
-    const trimmedName = name.trim();
-    const trimmedEmail = email.trim();
-    if (trimmedName) {
-      localStorage.setItem("aiInterviewUserName", trimmedName);
-    }
-    if (trimmedEmail) {
-      localStorage.setItem("aiInterviewUserEmail", trimmedEmail);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    clearError();
 
     // Validate email format
     if (!isValidEmail(formData.email)) {
@@ -59,38 +47,45 @@ export function AuthForm({ mode }: AuthFormProps) {
         setError(passwordError);
         return;
       }
+      
+      // Validate name for signup
+      if (!formData.name.trim() || formData.name.trim().length < 2) {
+        setError("Please enter your full name (at least 2 characters)");
+        return;
+      }
     }
 
-    setIsLoading(true);
+    setIsSubmitting(true);
 
     try {
       if (mode === "login") {
-        // TODO: Replace with actual authentication
-        const result = await mockApi.login(formData.email, formData.password);
-        // Prefer existing stored name if it exists; otherwise use returned user name
-        const storedName =
-          typeof window !== "undefined"
-            ? localStorage.getItem("aiInterviewUserName") || ""
-            : "";
-        persistProfile(
-          storedName || result.user.name,
-          formData.email || result.user.email
-        );
+        await login(formData.email, formData.password);
+        toast.success("Welcome back!", {
+          description: "You have been logged in successfully.",
+        });
       } else {
-        // TODO: Replace with actual registration
-        const result = await mockApi.signup(
-          formData.name,
-          formData.email,
-          formData.password
-        );
-        persistProfile(result.user.name, result.user.email);
+        await signup(formData.name.trim(), formData.email, formData.password);
+        toast.success("Account created!", {
+          description: "Welcome to AI Interview Master.",
+        });
       }
-      router.push("/dashboard");
+      // Redirect is handled by auth context
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+      const message = err instanceof Error ? err.message : "An error occurred";
+      setError(message);
+      toast.error(mode === "login" ? "Login failed" : "Registration failed", {
+        description: message,
+      });
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
+  };
+
+  const handleGoogleSignIn = async () => {
+    // TODO: Implement Google Sign-In when Google Client ID is configured
+    toast.info("Coming Soon", {
+      description: "Google sign-in will be available once configured.",
+    });
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -100,23 +95,18 @@ export function AuthForm({ mode }: AuthFormProps) {
     }));
     // Clear error when user starts typing
     if (error) setError("");
+    if (authError) clearError();
   };
 
   const validatePassword = (password: string): string | null => {
-    if (password.length < 8) {
-      return "Password must be at least 8 characters long";
-    }
-    if (!/[A-Z]/.test(password)) {
-      return "Password must contain at least one uppercase letter";
-    }
-    if (!/[a-z]/.test(password)) {
-      return "Password must contain at least one lowercase letter";
-    }
-    if (!/[0-9]/.test(password)) {
-      return "Password must contain at least one number";
+    if (password.length < 6) {
+      return "Password must be at least 6 characters long";
     }
     return null;
   };
+
+  const isLoading = isSubmitting || authLoading;
+  const displayError = error || authError;
 
   return (
     <div className="min-h-screen flex">
@@ -174,6 +164,7 @@ export function AuthForm({ mode }: AuthFormProps) {
                     value={formData.name}
                     onChange={handleChange}
                     required
+                    disabled={isLoading}
                     className="pl-10 h-12 bg-secondary/50 border-border/50 focus:border-accent focus:ring-accent"
                   />
                 </div>
@@ -197,6 +188,7 @@ export function AuthForm({ mode }: AuthFormProps) {
                   value={formData.email}
                   onChange={handleChange}
                   required
+                  disabled={isLoading}
                   className="pl-10 h-12 bg-secondary/50 border-border/50 focus:border-accent focus:ring-accent"
                 />
               </div>
@@ -219,13 +211,15 @@ export function AuthForm({ mode }: AuthFormProps) {
                   value={formData.password}
                   onChange={handleChange}
                   required
-                  minLength={8}
+                  minLength={6}
+                  disabled={isLoading}
                   className="pl-10 pr-10 h-12 bg-secondary/50 border-border/50 focus:border-accent focus:ring-accent"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  disabled={isLoading}
                 >
                   {showPassword ? (
                     <EyeOff className="h-4 w-4" />
@@ -234,6 +228,11 @@ export function AuthForm({ mode }: AuthFormProps) {
                   )}
                 </button>
               </div>
+              {mode === "signup" && (
+                <p className="text-xs text-muted-foreground">
+                  Password must be at least 6 characters
+                </p>
+              )}
             </div>
 
             {mode === "login" && (
@@ -244,13 +243,13 @@ export function AuthForm({ mode }: AuthFormProps) {
               </div>
             )}
 
-            {error && (
+            {displayError && (
               <motion.p
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 className="text-sm text-destructive bg-destructive/10 p-3 rounded-lg"
               >
-                {error}
+                {displayError}
               </motion.p>
             )}
 
@@ -289,8 +288,9 @@ export function AuthForm({ mode }: AuthFormProps) {
             <Button
               variant="outline"
               type="button"
+              disabled={isLoading}
               className="h-12 bg-transparent border-border/50 hover:bg-secondary"
-              onClick={() => toast.info("Coming Soon", { description: "Google sign-in will be available in a future update." })}
+              onClick={handleGoogleSignIn}
             >
               <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
                 <path
@@ -315,6 +315,7 @@ export function AuthForm({ mode }: AuthFormProps) {
             <Button
               variant="outline"
               type="button"
+              disabled={isLoading}
               className="h-12 bg-transparent border-border/50 hover:bg-secondary"
               onClick={() => toast.info("Coming Soon", { description: "GitHub sign-in will be available in a future update." })}
             >

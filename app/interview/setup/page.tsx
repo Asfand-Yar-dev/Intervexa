@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -12,8 +11,9 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { motion, AnimatePresence } from "framer-motion"
 import { ArrowRight, X, Sparkles, Briefcase, Code, FileText, Loader2, ArrowLeft } from "lucide-react"
-import { mockApi } from "@/lib/mock-api"
-import { useAuth } from "@/hooks/use-auth"
+import { useRequireAuth } from "@/contexts/auth-context"
+import { interviewApi, questionsApi } from "@/lib/api"
+import { toast } from "sonner"
 
 const suggestedSkills = [
   "React",
@@ -30,14 +30,21 @@ const suggestedSkills = [
   "Agile",
 ]
 
+const sessionTypes = [
+  { id: "technical", name: "Technical Interview", description: "Coding and technical questions" },
+  { id: "behavioral", name: "Behavioral Interview", description: "STAR method questions" },
+  { id: "mixed", name: "Mixed Interview", description: "Combination of both" },
+]
+
 export default function InterviewSetupPage() {
   const router = useRouter()
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useRequireAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
     jobTitle: "",
     skills: [] as string[],
     jobDescription: "",
+    sessionType: "mixed",
   })
   const [skillInput, setSkillInput] = useState("")
 
@@ -72,11 +79,31 @@ export default function InterviewSetupPage() {
 
     setIsLoading(true)
     try {
-      // TODO: Replace with actual API call
-      const session = await mockApi.startInterview(formData.jobTitle, formData.skills, formData.jobDescription)
-      router.push(`/interview/session/${session.id}`)
+      // Start interview session with backend
+      const response = await interviewApi.startSession(formData.sessionType)
+      
+      if (response.success && response.data.session) {
+        // Store session metadata in sessionStorage for the interview page
+        sessionStorage.setItem('interviewSetup', JSON.stringify({
+          jobTitle: formData.jobTitle,
+          skills: formData.skills,
+          jobDescription: formData.jobDescription,
+          sessionType: formData.sessionType,
+        }))
+        
+        toast.success("Interview session started!", {
+          description: "Get ready for your practice interview.",
+        })
+        
+        router.push(`/interview/session/${response.data.session._id}`)
+      } else {
+        throw new Error("Failed to create session")
+      }
     } catch (error) {
       console.error("Failed to start interview:", error)
+      toast.error("Failed to start interview", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      })
       setIsLoading(false)
     }
   }
@@ -91,12 +118,12 @@ export default function InterviewSetupPage() {
           <Loader2 className="h-8 w-8 animate-spin text-accent" />
         </div>
       </DashboardLayout>
-    );
+    )
   }
 
   // Don't render if not authenticated
   if (!isAuthenticated) {
-    return null;
+    return null
   }
 
   return (
@@ -137,6 +164,36 @@ export default function InterviewSetupPage() {
           transition={{ duration: 0.4, delay: 0.1 }}
           className="space-y-8"
         >
+          {/* Session Type Selection */}
+          <div className="rounded-2xl border border-border/50 bg-card p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="rounded-xl bg-accent/10 p-2">
+                <Sparkles className="h-5 w-5 text-accent" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-card-foreground">Interview Type</h2>
+                <p className="text-sm text-muted-foreground">Select the type of interview practice</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {sessionTypes.map((type) => (
+                <button
+                  key={type.id}
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, sessionType: type.id }))}
+                  className={`p-4 rounded-xl border text-left transition-all ${
+                    formData.sessionType === type.id
+                      ? "border-accent bg-accent/10"
+                      : "border-border/50 hover:border-accent/50"
+                  }`}
+                >
+                  <p className="font-medium text-foreground">{type.name}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{type.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Job Title */}
           <div className="rounded-2xl border border-border/50 bg-card p-6">
             <div className="flex items-center gap-3 mb-4">

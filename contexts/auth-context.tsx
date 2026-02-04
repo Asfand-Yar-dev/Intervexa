@@ -1,0 +1,263 @@
+'use client';
+
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import { api, authApi, User, clearAuthData, getStoredUser, isAuthenticated as checkAuth } from '@/lib/api';
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+interface AuthContextType {
+  user: User | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  error: string | null;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (name: string, email: string, password: string) => Promise<void>;
+  googleSignIn: (idToken: string) => Promise<void>;
+  logout: () => void;
+  updateProfile: (data: { name?: string }) => Promise<void>;
+  refreshUser: () => Promise<void>;
+  clearError: () => void;
+}
+
+// =============================================================================
+// CONTEXT
+// =============================================================================
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// =============================================================================
+// PROVIDER
+// =============================================================================
+
+interface AuthProviderProps {
+  children: ReactNode;
+}
+
+// Routes that don't require authentication
+const PUBLIC_ROUTES = ['/', '/login', '/signup'];
+
+export function AuthProvider({ children }: AuthProviderProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Check if current route is public
+  const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
+
+  // Initialize auth state on mount
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        // Check for stored user first
+        const storedUser = getStoredUser();
+        
+        if (storedUser && checkAuth()) {
+          setUser(storedUser);
+          
+          // Verify token is still valid in background
+          try {
+            const response = await authApi.verifyToken();
+            if (response.success && response.data.user) {
+              setUser(response.data.user);
+            }
+          } catch {
+            // Token invalid - clear auth and redirect if on protected route
+            clearAuthData();
+            setUser(null);
+            if (!isPublicRoute) {
+              router.push('/login');
+            }
+          }
+        } else if (!isPublicRoute) {
+          // No auth and on protected route - redirect to login
+          router.push('/login');
+        }
+      } catch (err) {
+        console.error('Auth initialization error:', err);
+        setError('Failed to initialize authentication');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initAuth();
+  }, [isPublicRoute, router]);
+
+  // Login handler
+  const login = useCallback(async (email: string, password: string) => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await authApi.login(email, password);
+      
+      if (response.success && response.data) {
+        setUser(response.data.user);
+        router.push('/dashboard');
+      } else {
+        throw new Error(response.message || 'Login failed');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Login failed';
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [router]);
+
+  // Signup handler
+  const signup = useCallback(async (name: string, email: string, password: string) => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await authApi.register(name, email, password);
+      
+      if (response.success && response.data) {
+        setUser(response.data.user);
+        router.push('/dashboard');
+      } else {
+        throw new Error(response.message || 'Registration failed');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Registration failed';
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [router]);
+
+  // Google Sign-In handler
+  const googleSignIn = useCallback(async (idToken: string) => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await authApi.googleSignIn(idToken);
+      
+      if (response.success && response.data) {
+        setUser(response.data.user);
+        router.push('/dashboard');
+      } else {
+        throw new Error(response.message || 'Google sign-in failed');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Google sign-in failed';
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [router]);
+
+  // Logout handler
+  const logout = useCallback(() => {
+    authApi.logout();
+    setUser(null);
+    setError(null);
+    router.push('/login');
+  }, [router]);
+
+  // Update profile handler
+  const updateProfile = useCallback(async (data: { name?: string }) => {
+    setError(null);
+    
+    try {
+      const response = await authApi.updateProfile(data);
+      
+      if (response.success && response.data) {
+        setUser(response.data);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Profile update failed';
+      setError(message);
+      throw err;
+    }
+  }, []);
+
+  // Refresh user data
+  const refreshUser = useCallback(async () => {
+    try {
+      const response = await authApi.getProfile();
+      if (response.success && response.data) {
+        setUser(response.data);
+      }
+    } catch (err) {
+      console.error('Failed to refresh user:', err);
+    }
+  }, []);
+
+  // Clear error
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  const value: AuthContextType = {
+    user,
+    isLoading,
+    isAuthenticated: !!user && checkAuth(),
+    error,
+    login,
+    signup,
+    googleSignIn,
+    logout,
+    updateProfile,
+    refreshUser,
+    clearError,
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+// =============================================================================
+// HOOKS
+// =============================================================================
+
+/**
+ * Hook to access auth context
+ */
+export function useAuth(): AuthContextType {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
+
+/**
+ * Hook to protect routes - redirects to login if not authenticated
+ */
+export function useRequireAuth() {
+  const { isAuthenticated, isLoading, user } = useAuth();
+  const router = useRouter();
+  
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.push('/login');
+    }
+  }, [isAuthenticated, isLoading, router]);
+  
+  return { isAuthenticated, isLoading, user };
+}
+
+/**
+ * Hook to get current user info
+ */
+export function useCurrentUser() {
+  const { user, isLoading } = useAuth();
+  return { user, isLoading };
+}
+
+export default AuthContext;

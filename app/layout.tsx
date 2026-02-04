@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { Inter, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
+import { AuthProvider } from "@/contexts/auth-context"
 import { Toaster } from "sonner"
 import "./globals.css"
 
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
   title: "AI Interview Master - Master Your Interviews with AI",
   description:
     "Practice interviews with AI-powered mock sessions, get real-time feedback on voice and body language, and land your dream job.",
-  generator: "v0.app",
+  generator: "AI Interview Master",
   icons: {
     icon: [
       {
@@ -47,8 +48,15 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
-          <Toaster theme="dark" />
+          <AuthProvider>
+            {children}
+          </AuthProvider>
+          <Toaster 
+            theme="dark" 
+            position="top-right"
+            richColors
+            closeButton
+          />
         </ThemeProvider>
         <Analytics />
       </body>

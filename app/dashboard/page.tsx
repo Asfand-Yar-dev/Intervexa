@@ -1,66 +1,121 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
 import { StatsCards } from "@/components/dashboard/stats-cards";
 import { RecentSessions } from "@/components/dashboard/recent-sessions";
 import { QuickActions } from "@/components/dashboard/quick-actions";
-import { mockApi, type InterviewSession } from "@/lib/mock-api";
 import { motion } from "framer-motion";
-import { Loader2 } from "lucide-react";
-import { useAuth } from "@/hooks/use-auth";
+import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { useAuth, useRequireAuth } from "@/contexts/auth-context";
+import { interviewApi, type InterviewSession } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+
+// Map backend session to frontend format
+interface DisplaySession {
+  id: string;
+  userId: string;
+  jobTitle: string;
+  skills: string[];
+  status: "pending" | "in-progress" | "completed";
+  score?: number;
+  createdAt: string;
+  completedAt?: string;
+}
+
+function mapSessionToDisplay(session: InterviewSession): DisplaySession {
+  return {
+    id: session._id,
+    userId: session.user_id,
+    jobTitle: session.session_type || "Interview Session",
+    skills: [],
+    status: session.status === "ongoing" ? "in-progress" : session.status as DisplaySession["status"],
+    score: session.overall_score,
+    createdAt: session.createdAt,
+    completedAt: session.end_time,
+  };
+}
 
 export default function DashboardPage() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useRequireAuth();
+  const { user } = useAuth();
+  
   const [isLoading, setIsLoading] = useState(true);
-  const [userName, setUserName] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({
     totalInterviews: 0,
     averageScore: 0,
     confidenceImprovement: 0,
-    recentSessions: [] as InterviewSession[],
+    recentSessions: [] as DisplaySession[],
   });
 
-  useEffect(() => {
-    async function loadDashboard() {
-      // Wait for auth check to complete
-      if (authLoading) return;
+  const loadDashboardData = useCallback(async () => {
+    if (!isAuthenticated) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Fetch user's interview sessions
+      const response = await interviewApi.getMySessions({ limit: 10 });
       
-      // Only load data if authenticated
-      if (!isAuthenticated) {
-        setIsLoading(false);
-        return;
+      if (response.success && response.data) {
+        const sessions = response.data.sessions.map(mapSessionToDisplay);
+        const completedSessions = sessions.filter(s => s.status === "completed");
+        
+        // Calculate stats
+        const totalInterviews = sessions.length;
+        const averageScore = completedSessions.length > 0
+          ? Math.round(
+              completedSessions.reduce((acc, s) => acc + (s.score || 0), 0) / 
+              completedSessions.length
+            )
+          : 0;
+        
+        setStats({
+          totalInterviews,
+          averageScore,
+          confidenceImprovement: 15, // This would come from AI analysis
+          recentSessions: sessions.slice(0, 5),
+        });
       }
+    } catch (err) {
+      console.error("Failed to load dashboard:", err);
+      setError(err instanceof Error ? err.message : "Failed to load dashboard data");
       
-      try {
-        // TODO: Replace with actual API call
-        const data = await mockApi.getDashboardStats();
-        setStats(data);
-      } catch (error) {
-        console.error("Failed to load dashboard:", error);
-      } finally {
-        setIsLoading(false);
-      }
+      // Set default stats on error
+      setStats({
+        totalInterviews: 0,
+        averageScore: 0,
+        confidenceImprovement: 0,
+        recentSessions: [],
+      });
+    } finally {
+      setIsLoading(false);
     }
-    loadDashboard();
-  }, [authLoading, isAuthenticated]);
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    const storedName =
-      typeof window !== "undefined"
-        ? localStorage.getItem("aiInterviewUserName")
-        : null;
-    if (storedName) {
-      setUserName(storedName);
+    // Wait for auth check to complete
+    if (authLoading) return;
+    
+    // Only load data if authenticated
+    if (isAuthenticated) {
+      loadDashboardData();
+    } else {
+      setIsLoading(false);
     }
-  }, []);
+  }, [authLoading, isAuthenticated, loadDashboardData]);
 
   // Show loading while checking auth or loading data
   if (authLoading || isLoading) {
     return (
       <DashboardLayout>
         <div className="flex h-[60vh] items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-accent" />
+          <div className="text-center space-y-4">
+            <Loader2 className="h-8 w-8 animate-spin text-accent mx-auto" />
+            <p className="text-muted-foreground">Loading your dashboard...</p>
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -70,6 +125,27 @@ export default function DashboardPage() {
   if (!isAuthenticated) {
     return null;
   }
+
+  // Error state
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="flex h-[60vh] items-center justify-center">
+          <div className="text-center space-y-4 max-w-md">
+            <AlertCircle className="h-12 w-12 text-destructive mx-auto" />
+            <h2 className="text-xl font-semibold">Failed to Load Dashboard</h2>
+            <p className="text-muted-foreground">{error}</p>
+            <Button onClick={loadDashboardData} variant="outline">
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Try Again
+            </Button>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  const userName = user?.name || "";
 
   return (
     <DashboardLayout>

@@ -1,13 +1,15 @@
 "use client"
 
 import type React from "react"
-import { Suspense, useEffect, useState } from "react"
+import { Suspense } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Sparkles, LayoutDashboard, Play, FileText, Settings, LogOut, Menu, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { motion, AnimatePresence } from "framer-motion"
+import { useState } from "react"
+import { useAuth } from "@/contexts/auth-context"
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -88,19 +90,10 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
 }
 
 function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () => void }) {
-  const [userName, setUserName] = useState("")
-  const [userEmail, setUserEmail] = useState("")
+  const { user, logout } = useAuth()
 
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    const storedName = localStorage.getItem("aiInterviewUserName") || ""
-    const storedEmail = localStorage.getItem("aiInterviewUserEmail") || ""
-    setUserName(storedName)
-    setUserEmail(storedEmail)
-  }, [])
-
-  const getInitials = (name: string, email: string) => {
-    const cleanedName = name.trim()
+  const getInitials = (name?: string, email?: string) => {
+    const cleanedName = name?.trim() || ""
     if (cleanedName) {
       const parts = cleanedName.split(/\s+/)
       return parts
@@ -109,15 +102,21 @@ function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () 
         .map((p) => p[0].toUpperCase())
         .join("")
     }
-    const cleanedEmail = email.trim()
+    const cleanedEmail = email?.trim() || ""
     if (cleanedEmail) {
       return cleanedEmail[0]?.toUpperCase() || "U"
     }
     return "U"
   }
 
-  const initials = getInitials(userName, userEmail)
-  const displayName = userName || userEmail || ""
+  const handleLogout = () => {
+    if (onClose) onClose()
+    logout()
+  }
+
+  const initials = getInitials(user?.name, user?.email)
+  const displayName = user?.name || user?.email || "User"
+  const userEmail = user?.email || ""
 
   return (
     <div className="flex h-full flex-col">
@@ -162,8 +161,16 @@ function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () 
       {/* User Section */}
       <div className="border-t border-sidebar-border p-4">
         <div className="flex items-center gap-3 rounded-xl bg-sidebar-accent/50 p-3">
-          <div className="h-10 w-10 rounded-full bg-accent/20 flex items-center justify-center">
-            <span className="text-sm font-medium text-accent">{initials}</span>
+          <div className="h-10 w-10 rounded-full bg-accent/20 flex items-center justify-center overflow-hidden">
+            {user?.profilePicture ? (
+              <img 
+                src={user.profilePicture} 
+                alt={displayName} 
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="text-sm font-medium text-accent">{initials}</span>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-sidebar-foreground truncate">{displayName}</p>
@@ -173,12 +180,10 @@ function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () 
         <Button
           variant="ghost"
           className="w-full mt-3 justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
-          asChild
+          onClick={handleLogout}
         >
-          <Link href="/login">
-            <LogOut className="mr-3 h-4 w-4" />
-            Sign out
-          </Link>
+          <LogOut className="mr-3 h-4 w-4" />
+          Sign out
         </Button>
       </div>
     </div>
