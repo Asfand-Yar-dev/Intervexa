@@ -667,3 +667,4 @@ The system supports three user roles:
 ### "MongoDB Connection Failed"
 - MongoDB is not running
 - Start MongoDB: `mongod` or check MongoDB Atlas connection string
+
