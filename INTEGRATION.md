@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document summarizes the complete integration of the AI Interview Master frontend with the backend API.
+This document summarizes the complete integration of the Intervexa frontend with the backend API.
 
 ## Files Created
 
@@ -71,7 +71,11 @@ All `/dashboard/*` and `/interview/*` routes are protected:
 3. **Get Questions**: `GET /api/questions/random`
 4. **Submit Answers**: `POST /api/answers/submit`
 5. **End Session**: `PUT /api/interviews/:id/end`
-6. **View Results**: `GET /api/interviews/:id`
+6. **View Results**: `GET /api/interviews/:id/results`
+
+### Dashboard Stats
+
+- **Get Stats**: `GET /api/users/stats` (server-side aggregated statistics)
 
 ## Security Implementation
 

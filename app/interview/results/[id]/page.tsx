@@ -9,8 +9,21 @@ import { FeedbackSection } from "@/components/results/feedback-section"
 import { Button } from "@/components/ui/button"
 import { motion } from "framer-motion"
 import { ArrowLeft, Download, Share2, RotateCcw, Loader2, Trophy, TrendingUp } from "lucide-react"
-import { mockApi, type InterviewFeedback } from "@/lib/mock-api"
+import { interviewApi } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
+
+// Type for the feedback displayed on this page
+interface InterviewFeedback {
+  overallScore: number;
+  confidenceScore: number;
+  clarityScore: number;
+  technicalScore: number;
+  bodyLanguageScore: number;
+  voiceToneScore: number;
+  strengths: string[];
+  improvements: string[];
+  detailedFeedback: string;
+}
 
 export default function ResultsPage() {
   const params = useParams()
@@ -23,9 +36,22 @@ export default function ResultsPage() {
   useEffect(() => {
     async function loadResults() {
       try {
-        // Fetch existing results (not complete interview again)
-        const data = await mockApi.getInterviewResults(sessionId)
-        setFeedback(data)
+        // Fetch results from backend
+        const response = await interviewApi.getResults(sessionId)
+        if (response.success && response.data) {
+          // Map backend response to the expected feedback format
+          setFeedback({
+            overallScore: response.data.overallScore,
+            confidenceScore: response.data.scores.confidence,
+            clarityScore: response.data.scores.clarity,
+            technicalScore: response.data.scores.technical,
+            bodyLanguageScore: 75, // Placeholder until AI integration
+            voiceToneScore: 80,    // Placeholder until AI integration
+            strengths: response.data.strengths,
+            improvements: response.data.improvements,
+            detailedFeedback: response.data.summary,
+          })
+        }
       } catch (error) {
         console.error("Failed to load results:", error)
       } finally {

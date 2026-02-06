@@ -8,7 +8,7 @@ import { QuickActions } from "@/components/dashboard/quick-actions";
 import { motion } from "framer-motion";
 import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { useAuth, useRequireAuth } from "@/contexts/auth-context";
-import { interviewApi, type InterviewSession } from "@/lib/api";
+import { interviewApi, authApi, type InterviewSession } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
 // Map backend session to frontend format
@@ -56,27 +56,29 @@ export default function DashboardPage() {
     setError(null);
     
     try {
-      // Fetch user's interview sessions
-      const response = await interviewApi.getMySessions({ limit: 10 });
+      // Fetch stats from backend
+      const statsResponse = await authApi.getStats();
       
-      if (response.success && response.data) {
-        const sessions = response.data.sessions.map(mapSessionToDisplay);
-        const completedSessions = sessions.filter(s => s.status === "completed");
+      if (statsResponse.success && statsResponse.data) {
+        const { totalInterviews, averageScore, confidenceImprovement, recentSessions } = statsResponse.data;
         
-        // Calculate stats
-        const totalInterviews = sessions.length;
-        const averageScore = completedSessions.length > 0
-          ? Math.round(
-              completedSessions.reduce((acc, s) => acc + (s.score || 0), 0) / 
-              completedSessions.length
-            )
-          : 0;
+        // Map recent sessions to display format
+        const mappedSessions: DisplaySession[] = recentSessions.map(session => ({
+          id: session.id,
+          userId: '',
+          jobTitle: session.sessionType || 'Interview Session',
+          skills: [],
+          status: session.status === 'ongoing' ? 'in-progress' : session.status as DisplaySession['status'],
+          score: session.score,
+          createdAt: session.date,
+          completedAt: undefined,
+        }));
         
         setStats({
           totalInterviews,
           averageScore,
-          confidenceImprovement: 15, // This would come from AI analysis
-          recentSessions: sessions.slice(0, 5),
+          confidenceImprovement,
+          recentSessions: mappedSessions,
         });
       }
     } catch (err) {

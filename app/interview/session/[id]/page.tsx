@@ -16,8 +16,28 @@ import {
   CheckCircle,
   Sparkles,
 } from "lucide-react"
-import { mockApi, type InterviewQuestion } from "@/lib/mock-api"
+import { questionsApi, answersApi, interviewApi, type Question } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
+import { toast } from "sonner"
+
+// Map backend Question to frontend InterviewQuestion format
+interface InterviewQuestion {
+  id: string;
+  question: string;
+  category: string;
+  difficulty: "easy" | "medium" | "hard";
+  timeLimit: number;
+}
+
+function mapBackendQuestion(q: Question): InterviewQuestion {
+  return {
+    id: q._id,
+    question: q.questionText,
+    category: q.category,
+    difficulty: q.difficulty.toLowerCase() as "easy" | "medium" | "hard",
+    timeLimit: 120, // Default 2 minutes
+  };
+}
 
 export default function InterviewSessionPage() {
   const router = useRouter()
@@ -49,10 +69,14 @@ export default function InterviewSessionPage() {
   useEffect(() => {
     async function init() {
       try {
-        // Load questions
-        // TODO: Replace with actual API call
-        const loadedQuestions = await mockApi.getInterviewQuestions(sessionId)
-        setQuestions(loadedQuestions)
+        // Load questions from backend
+        const response = await questionsApi.getRandom(5)
+        if (response.success && response.data && response.data.length > 0) {
+          const mappedQuestions = response.data.map(mapBackendQuestion)
+          setQuestions(mappedQuestions)
+        } else {
+          throw new Error("Failed to load questions or no questions available")
+        }
 
         // Initialize camera
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -184,10 +208,19 @@ export default function InterviewSessionPage() {
 
     setIsProcessing(true)
     try {
-      // Submit with actual audio blob
-      await mockApi.submitAnswer(sessionId, currentQuestion.id, audioBlob)
+      // Submit answer to backend
+      // Note: Audio blob is created but file upload endpoint needed for actual audio storage
+      // For now, we record that an answer was submitted with placeholder text
+      await answersApi.submit({
+        question_id: currentQuestion.id,
+        session_id: sessionId,
+        answer_text: audioBlob ? `[Audio recording - ${Math.round(audioBlob.size / 1024)}KB]` : "[No recording]",
+        // audio_url would be set after file upload implementation
+      })
+      toast.success("Answer submitted!")
     } catch (error) {
       console.error("Failed to submit answer:", error)
+      toast.error("Failed to submit answer")
     }
     setIsProcessing(false)
   }
@@ -223,11 +256,13 @@ export default function InterviewSessionPage() {
     }
     
     try {
-      // TODO: Replace with actual completion
-      await mockApi.completeInterview(sessionId)
+      // End the interview session in the backend
+      await interviewApi.endSession(sessionId)
+      toast.success("Interview completed!")
       router.push(`/interview/results/${sessionId}`)
     } catch (error) {
       console.error("Failed to complete interview:", error)
+      toast.error("Failed to complete interview")
       setIsLoading(false)
     }
   }

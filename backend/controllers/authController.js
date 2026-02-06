@@ -496,47 +496,103 @@ const verifyToken = async (req, res) => {
  * -----------------------------------------------------------------------------
  */
 const googleSignIn = async (req, res) => {
-  const { idToken } = req.body;
+  const { idToken, accessToken, authCode } = req.body;
 
-  // Step 1: Validate that ID token is provided
-  if (!idToken) {
+  // Step 1: Validate that at least one token is provided
+  if (!idToken && !accessToken && !authCode) {
     throw new ApiError(
       HTTP_STATUS.BAD_REQUEST,
-      'Google ID token is required. Please provide the token from Google Sign-In.'
+      'Google token is required. Please provide idToken, accessToken, or authCode from Google Sign-In.'
     );
   }
 
-  // Step 2: Verify the Google ID token
-  let payload;
+  // Step 2: Verify the Google token and get user info
+  let googleProfile;
+  
   try {
-    /**
-     * Verify the ID token using Google's OAuth2Client
-     * 
-     * This verification:
-     * - Checks the token's cryptographic signature
-     * - Verifies the token hasn't expired
-     * - Confirms the token was issued for our application (audience)
-     */
-    const ticket = await googleClient.verifyIdToken({
-      idToken: idToken,
-      audience: process.env.GOOGLE_CLIENT_ID // Ensures token is for our app
-    });
-    
-    /**
-     * Extract the payload from the verified token
-     * Payload contains:
-     * - sub: Google's unique user ID
-     * - email: User's email address
-     * - email_verified: Whether email is verified by Google
-     * - name: User's full name
-     * - picture: URL to profile picture
-     * - given_name: First name
-     * - family_name: Last name
-     */
-    payload = ticket.getPayload();
+    if (idToken) {
+      /**
+       * ID Token Flow (from GoogleLogin component)
+       * Verify the ID token using Google's OAuth2Client
+       */
+      const ticket = await googleClient.verifyIdToken({
+        idToken: idToken,
+        audience: process.env.GOOGLE_CLIENT_ID
+      });
+      
+      const payload = ticket.getPayload();
+      googleProfile = {
+        googleId: payload.sub,
+        email: payload.email,
+        name: payload.name || 'Google User',
+        picture: payload.picture
+      };
+      
+    } else if (authCode) {
+      /**
+       * Authorization Code Flow (from useGoogleLogin with flow: 'auth-code')
+       * Exchange the authorization code for access token
+       */
+      const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code: authCode,
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET,
+          redirect_uri: 'postmessage', // This is important for popup mode
+          grant_type: 'authorization_code'
+        })
+      });
+      
+      if (!tokenResponse.ok) {
+        const errorData = await tokenResponse.json();
+        logger.error(`Google token exchange failed: ${JSON.stringify(errorData)}`);
+        throw new Error('Failed to exchange authorization code');
+      }
+      
+      const tokens = await tokenResponse.json();
+      
+      // Now fetch user info with the access token
+      const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${tokens.access_token}` }
+      });
+      
+      if (!userInfoResponse.ok) {
+        throw new Error('Failed to fetch user info from Google');
+      }
+      
+      const userInfo = await userInfoResponse.json();
+      googleProfile = {
+        googleId: userInfo.sub,
+        email: userInfo.email,
+        name: userInfo.name || 'Google User',
+        picture: userInfo.picture
+      };
+      
+    } else if (accessToken) {
+      /**
+       * Access Token Flow (from useGoogleLogin hook with implicit flow)
+       * Fetch user info from Google's userinfo endpoint
+       */
+      const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      
+      if (!userInfoResponse.ok) {
+        throw new Error('Failed to fetch user info from Google');
+      }
+      
+      const userInfo = await userInfoResponse.json();
+      googleProfile = {
+        googleId: userInfo.sub,
+        email: userInfo.email,
+        name: userInfo.name || 'Google User',
+        picture: userInfo.picture
+      };
+    }
     
   } catch (error) {
-    // Token verification failed
     logger.error(`Google token verification failed: ${error.message}`);
     
     throw new ApiError(
@@ -545,27 +601,13 @@ const googleSignIn = async (req, res) => {
     );
   }
 
-  // Step 3: Extract user information from Google's payload
-  const googleProfile = {
-    googleId: payload.sub,           // Google's unique user ID
-    email: payload.email,            // User's email
-    name: payload.name || 'Google User', // Full name (fallback if not provided)
-    picture: payload.picture         // Profile picture URL
-  };
-
-  // Log for debugging (remove in production)
+  // Log for debugging
   logger.info(`Google Sign-In attempt for: ${googleProfile.email}`);
 
-  // Step 4: Find or create user in our database
-  /**
-   * findOrCreateFromGoogle handles three scenarios:
-   * 1. User exists with this Google ID -> Return existing user
-   * 2. User exists with same email (local auth) -> Link Google account
-   * 3. New user -> Create new account with Google info
-   */
+  // Step 3: Find or create user in our database
   const { user, isNewUser } = await User.findOrCreateFromGoogle(googleProfile);
 
-  // Step 5: Check if user account is active
+  // Step 4: Check if user account is active
   if (!user.isActive) {
     throw new ApiError(
       HTTP_STATUS.UNAUTHORIZED,
@@ -573,24 +615,17 @@ const googleSignIn = async (req, res) => {
     );
   }
 
-  // Step 6: Generate our own JWT token
-  /**
-   * Even though user authenticated with Google, we issue our own JWT
-   * This allows us to:
-   * - Control token expiration
-   * - Include custom claims (role, etc.)
-   * - Use the same token format for all auth methods
-   */
+  // Step 5: Generate our own JWT token
   const token = generateToken(user);
 
-  // Step 7: Log the event
+  // Step 6: Log the event
   if (isNewUser) {
     logger.info(`New user registered via Google: ${googleProfile.email}`);
   } else {
     logger.info(`User logged in via Google: ${googleProfile.email}`);
   }
 
-  // Step 8: Send success response
+  // Step 7: Send success response
   res.status(isNewUser ? HTTP_STATUS.CREATED : HTTP_STATUS.OK).json({
     success: true,
     message: isNewUser 

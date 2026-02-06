@@ -21,7 +21,7 @@ export function Footer() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent">
                 <Sparkles className="h-4 w-4 text-accent-foreground" />
               </div>
-              <span className="text-lg font-semibold text-foreground">AI Interview Master</span>
+              <span className="text-lg font-semibold text-foreground">Intervexa</span>
             </Link>
             <p className="text-sm text-muted-foreground">
               Master your interviews with AI-powered practice sessions and personalized feedback.
@@ -120,7 +120,7 @@ export function Footer() {
         </div>
 
         <div className="mt-12 border-t border-border/50 pt-8 text-center text-sm text-muted-foreground">
-          <p>© {new Date().getFullYear()} AI Interview Master. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} Intervexa. All rights reserved.</p>
         </div>
       </div>
     </footer>

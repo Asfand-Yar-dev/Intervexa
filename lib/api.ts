@@ -258,12 +258,27 @@ export const authApi = {
   },
 
   /**
-   * Login with Google (send ID token from Google Sign-In)
+   * Login with Google (supports ID token, access token, or auth code)
    */
-  async googleSignIn(idToken: string): Promise<AuthResponse> {
+  async googleSignIn(token: string, tokenType: 'idToken' | 'accessToken' | 'authCode' = 'authCode'): Promise<AuthResponse> {
+    let body: { idToken?: string; accessToken?: string; authCode?: string };
+    
+    switch (tokenType) {
+      case 'idToken':
+        body = { idToken: token };
+        break;
+      case 'accessToken':
+        body = { accessToken: token };
+        break;
+      case 'authCode':
+      default:
+        body = { authCode: token };
+        break;
+    }
+    
     const response = await apiRequest<AuthResponse>(API_ENDPOINTS.AUTH.GOOGLE, {
       method: 'POST',
-      body: { idToken },
+      body,
     });
     
     // Store auth data on successful Google sign-in
@@ -329,6 +344,30 @@ export const authApi = {
   logout(): void {
     clearAuthData();
   },
+
+  /**
+   * Get user dashboard statistics
+   */
+  async getStats(): Promise<{
+    success: boolean;
+    data: {
+      totalInterviews: number;
+      completedInterviews: number;
+      averageScore: number;
+      confidenceImprovement: number;
+      recentSessions: Array<{
+        id: string;
+        sessionType: string;
+        status: string;
+        score?: number;
+        date: string;
+      }>;
+      inProgressCount: number;
+      cancelledCount: number;
+    };
+  }> {
+    return apiRequest(API_ENDPOINTS.STATS, { requireAuth: true });
+  },
 };
 
 // =============================================================================
@@ -390,6 +429,59 @@ export const interviewApi = {
       requireAuth: true,
     });
   },
+
+  /**
+   * Cancel an interview session
+   */
+  async cancelSession(sessionId: string): Promise<{
+    success: boolean;
+    message: string;
+    data: { session: InterviewSession };
+  }> {
+    return apiRequest(API_ENDPOINTS.INTERVIEWS.CANCEL(sessionId), {
+      method: 'PUT',
+      requireAuth: true,
+    });
+  },
+
+  /**
+   * Get interview results with feedback
+   */
+  async getResults(sessionId: string): Promise<{
+    success: boolean;
+    data: {
+      sessionId: string;
+      status: string;
+      sessionType: string;
+      overallScore: number;
+      totalQuestions: number;
+      questionsAnswered: number;
+      scores: {
+        overall: number;
+        confidence: number;
+        clarity: number;
+        technical: number;
+        communication: number;
+      };
+      questionFeedback: Array<{
+        id: string;
+        questionNumber: number;
+        question: string;
+        category: string;
+        difficulty: string;
+        answer: string;
+        score: number;
+        feedback: string;
+      }>;
+      summary: string;
+      strengths: string[];
+      improvements: string[];
+    };
+  }> {
+    return apiRequest(API_ENDPOINTS.INTERVIEWS.RESULTS(sessionId), {
+      requireAuth: true,
+    });
+  },
 };
 
 // =============================================================================
@@ -440,7 +532,7 @@ export const questionsApi = {
   async getRandom(count: number = 5, params?: {
     category?: string;
     difficulty?: string;
-  }): Promise<{ success: boolean; data: { questions: Question[] } }> {
+  }): Promise<{ success: boolean; data: Question[] }> {
     let endpoint = `${API_ENDPOINTS.QUESTIONS.RANDOM}?count=${count}`;
     if (params?.category) endpoint += `&category=${params.category}`;
     if (params?.difficulty) endpoint += `&difficulty=${params.difficulty}`;

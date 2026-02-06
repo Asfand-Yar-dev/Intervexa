@@ -71,8 +71,15 @@ router.post('/submit', authenticate, submitAnswerValidation, asyncHandler(async 
 
   logger.info(`Answer submitted: ${answer._id} for question: ${question_id}`);
 
-  // TODO: Trigger AI evaluation modules here
-  // This is where NLP, facial, and vocal analysis would be triggered
+  // Trigger AI evaluation asynchronously (non-blocking)
+  // Import AI services - this runs in background and updates the answer when complete
+  triggerAIEvaluation(answer._id, {
+    text: answer_text,
+    audioUrl: audio_url,
+    videoUrl: video_url,
+  }).catch(err => {
+    logger.error(`AI evaluation failed for answer ${answer._id}:`, err.message);
+  });
 
   res.status(HTTP_STATUS.CREATED).json({
     success: true,
@@ -80,6 +87,53 @@ router.post('/submit', authenticate, submitAnswerValidation, asyncHandler(async 
     data: answer
   });
 }));
+
+/**
+ * Async function to trigger AI evaluation
+ * Runs in background, doesn't block response
+ */
+async function triggerAIEvaluation(answerId, data) {
+  try {
+    const aiServices = require('../services');
+    
+    // Run analysis (uses placeholders if AI not configured)
+    const analysis = await aiServices.analyzeAnswer(data);
+    
+    // Update answer with evaluation results
+    if (analysis.overallScore != null) {
+      await Answer.findByIdAndUpdate(answerId, {
+        evaluation_score: analysis.overallScore,
+        feedback: generateFeedbackText(analysis),
+      });
+      
+      logger.info(`AI evaluation completed for answer ${answerId}: score=${analysis.overallScore}`);
+    }
+  } catch (error) {
+    logger.error('AI evaluation error:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Generate feedback text from analysis results
+ */
+function generateFeedbackText(analysis) {
+  const parts = [];
+  
+  if (analysis.nlp?.feedback?.summary) {
+    parts.push(analysis.nlp.feedback.summary);
+  }
+  if (analysis.vocal?.feedback?.summary) {
+    parts.push(analysis.vocal.feedback.summary);
+  }
+  if (analysis.facial?.feedback?.summary) {
+    parts.push(analysis.facial.feedback.summary);
+  }
+  
+  return parts.length > 0 
+    ? parts.join(' ')
+    : 'Answer recorded. AI analysis pending.';
+}
 
 /**
  * @route   GET /api/answers/session/:sessionId

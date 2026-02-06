@@ -28,7 +28,9 @@ export const API_ENDPOINTS = {
     START: '/api/interviews/start',
     MY_SESSIONS: '/api/interviews/my-sessions',
     END: (sessionId: string) => `/api/interviews/${sessionId}/end`,
+    CANCEL: (sessionId: string) => `/api/interviews/${sessionId}/cancel`,
     GET_BY_ID: (sessionId: string) => `/api/interviews/${sessionId}`,
+    RESULTS: (sessionId: string) => `/api/interviews/${sessionId}/results`,
   },
   
   // Questions
@@ -45,6 +47,9 @@ export const API_ENDPOINTS = {
     SUBMIT: '/api/answers/submit',
     SESSION: (sessionId: string) => `/api/answers/session/${sessionId}`,
   },
+  
+  // User Stats
+  STATS: '/api/users/stats',
   
   // Health Check
   HEALTH: '/health',

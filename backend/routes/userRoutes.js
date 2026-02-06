@@ -53,6 +53,11 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { authenticate } = require('../middleware/auth');
 const { registerValidation, loginValidation } = require('../middleware/validation');
 
+// Import models for stats endpoint
+const InterviewSession = require('../models/InterviewSession');
+const Answer = require('../models/Answer');
+const { HTTP_STATUS } = require('../config/constants');
+
 /**
  * =============================================================================
  * PUBLIC ROUTES - No Authentication Required
@@ -344,5 +349,71 @@ router.put('/change-password', authenticate, asyncHandler(changePassword));
  */
 router.get('/verify-token', authenticate, asyncHandler(verifyToken));
 
+/**
+ * @route   GET /api/users/stats
+ * @desc    Get dashboard statistics for current user
+ * @access  Private
+ * 
+ * @returns {Object} { success, data: { stats } }
+ */
+router.get('/stats', authenticate, asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  
+  // Get all sessions for the user
+  const sessions = await InterviewSession.find({ user_id: userId });
+  
+  // Calculate statistics
+  const totalInterviews = sessions.length;
+  const completedSessions = sessions.filter(s => s.status === 'completed');
+  const completedCount = completedSessions.length;
+  
+  // Calculate average score from completed sessions
+  const totalScore = completedSessions.reduce((sum, s) => sum + (s.overall_score || 0), 0);
+  const averageScore = completedCount > 0 ? Math.round(totalScore / completedCount) : 0;
+  
+  // Get recent sessions (last 5)
+  const recentSessions = sessions
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 5)
+    .map(session => ({
+      id: session._id,
+      sessionType: session.session_type,
+      status: session.status,
+      score: session.overall_score,
+      date: session.createdAt,
+      duration: session.duration,
+    }));
+  
+  // Calculate improvement (compare last 3 vs previous 3)
+  let confidenceImprovement = 0;
+  if (completedCount >= 6) {
+    const sorted = completedSessions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const recent3Avg = sorted.slice(0, 3).reduce((s, ss) => s + (ss.overall_score || 0), 0) / 3;
+    const prev3Avg = sorted.slice(3, 6).reduce((s, ss) => s + (ss.overall_score || 0), 0) / 3;
+    confidenceImprovement = Math.round(recent3Avg - prev3Avg);
+  } else if (completedCount >= 2) {
+    // Simple comparison if fewer sessions
+    const sorted = completedSessions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const latest = sorted[0].overall_score || 0;
+    const previous = sorted[1].overall_score || 0;
+    confidenceImprovement = latest - previous;
+  }
+  
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    data: {
+      totalInterviews,
+      completedInterviews: completedCount,
+      averageScore,
+      confidenceImprovement,
+      recentSessions,
+      // Additional stats
+      inProgressCount: sessions.filter(s => s.status === 'ongoing').length,
+      cancelledCount: sessions.filter(s => s.status === 'cancelled').length,
+    }
+  });
+}));
+
 // Export the router
 module.exports = router;
+

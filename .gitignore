@@ -26,6 +26,11 @@ build/
 .env.production.local
 .env*.local
 
+# Backend environment files (IMPORTANT: Never commit secrets!)
+backend/.env
+backend/.env.local
+backend/.env.*
+
 # =============================================================================
 # BUILD OUTPUT
 # =============================================================================

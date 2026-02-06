@@ -48,7 +48,7 @@ function DashboardLayoutInner({ children }: DashboardLayoutProps) {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent">
             <Sparkles className="h-4 w-4 text-accent-foreground" />
           </div>
-          <span className="font-semibold text-foreground">AI Interview Master</span>
+          <span className="font-semibold text-foreground">Intervexa</span>
         </Link>
       </header>
 
@@ -126,7 +126,7 @@ function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () 
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent">
             <Sparkles className="h-4 w-4 text-accent-foreground" />
           </div>
-          <span className="font-semibold text-sidebar-foreground">AI Interview Master</span>
+          <span className="font-semibold text-sidebar-foreground">Intervexa</span>
         </Link>
         {onClose && (
           <button onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-sidebar-accent lg:hidden">

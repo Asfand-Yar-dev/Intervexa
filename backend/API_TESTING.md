@@ -20,6 +20,19 @@ http://localhost:5000
 | PUT    | /api/users/me              | Yes           | Update profile           |
 | PUT    | /api/users/change-password | Yes           | Change password          |
 | GET    | /api/users/verify-token    | Yes           | Verify token validity    |
+| GET    | /api/users/stats           | Yes           | Get dashboard statistics |
+| POST   | /api/interviews/start      | Yes           | Start interview session  |
+| GET    | /api/interviews/my-sessions| Yes           | Get user's sessions      |
+| GET    | /api/interviews/:id        | Yes           | Get session by ID        |
+| PUT    | /api/interviews/:id/end    | Yes           | End interview session    |
+| PUT    | /api/interviews/:id/cancel | Yes           | Cancel interview session |
+| GET    | /api/interviews/:id/results| Yes           | Get interview results    |
+| GET    | /api/questions             | No            | Get all questions        |
+| GET    | /api/questions/random      | Yes           | Get random questions     |
+| GET    | /api/questions/categories  | No            | Get question categories  |
+| POST   | /api/questions/add         | Yes           | Add new question         |
+| POST   | /api/answers/submit        | Yes           | Submit an answer         |
+| GET    | /api/answers/session/:id   | Yes           | Get session answers      |
 
 ---
 

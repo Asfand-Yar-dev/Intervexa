@@ -1,4 +1,4 @@
-# AI Interview Master
+# Intervexa
 
 > An intelligent AI-powered mock interview platform that helps users practice and improve their interview skills using real-time analysis.
 
@@ -8,7 +8,7 @@
 
 ## 📋 Overview
 
-AI Interview Master is a full-stack web application that provides:
+Intervexa is a full-stack web application that provides:
 - 🎯 AI-powered mock interviews with real-time feedback
 - 📊 Comprehensive analysis of responses (NLP, facial, vocal)
 - 📈 Progress tracking and performance history

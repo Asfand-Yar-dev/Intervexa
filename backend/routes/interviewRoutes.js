@@ -5,6 +5,8 @@
 
 const express = require('express');
 const InterviewSession = require('../models/InterviewSession');
+const Answer = require('../models/Answer');
+const Question = require('../models/Question');
 const { HTTP_STATUS, SESSION_STATUS } = require('../config/constants');
 const { asyncHandler, ApiError } = require('../middleware/errorHandler');
 const { authenticate } = require('../middleware/auth');
@@ -184,4 +186,95 @@ router.get('/user/:userId', authenticate, userIdParamValidation, asyncHandler(as
   });
 }));
 
+/**
+ * @route   GET /api/interviews/:sessionId/results
+ * @desc    Get interview results with aggregated feedback
+ * @access  Private
+ */
+router.get('/:sessionId/results', authenticate, asyncHandler(async (req, res) => {
+  const session = await InterviewSession.findOne({
+    _id: req.params.sessionId,
+    user_id: req.user.id
+  });
+
+  if (!session) {
+    throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Interview session not found');
+  }
+
+  // Get all answers for this session with question details
+  const answers = await Answer.find({
+    session_id: req.params.sessionId,
+    user_id: req.user.id
+  })
+    .populate('question_id', 'questionText category difficulty')
+    .sort({ createdAt: 1 });
+
+  // Calculate scores from answers
+  const answeredQuestions = answers.length;
+  const totalScore = answers.reduce((sum, a) => sum + (a.evaluation_score || 0), 0);
+  const averageScore = answeredQuestions > 0 ? Math.round(totalScore / answeredQuestions) : 0;
+
+  // Build question feedback array
+  const questionFeedback = answers.map((answer, index) => ({
+    id: answer._id,
+    questionNumber: index + 1,
+    question: answer.question_id?.questionText || 'Question not found',
+    category: answer.question_id?.category || 'General',
+    difficulty: answer.question_id?.difficulty || 'Medium',
+    answer: answer.answer_text,
+    score: answer.evaluation_score || 0,
+    feedback: answer.feedback || 'Answer recorded successfully. AI analysis pending.',
+    strengths: [],  // Will be populated by AI analysis
+    improvements: [],  // Will be populated by AI analysis
+  }));
+
+  // Build result response
+  const results = {
+    sessionId: session._id,
+    status: session.status,
+    sessionType: session.session_type,
+    startedAt: session.started_at,
+    completedAt: session.ended_at,
+    duration: session.duration,
+    
+    // Scores
+    overallScore: session.overall_score || averageScore,
+    totalQuestions: session.total_questions || answeredQuestions,
+    questionsAnswered: answeredQuestions,
+    
+    // Score breakdown (placeholder until AI integration)
+    scores: {
+      overall: session.overall_score || averageScore,
+      confidence: 75,  // Placeholder - will come from AI vocal/facial analysis
+      clarity: 80,     // Placeholder - will come from AI NLP analysis
+      technical: averageScore,
+      communication: 78,  // Placeholder
+    },
+    
+    // Feedback
+    questionFeedback,
+    
+    // Summary (placeholder)
+    summary: answeredQuestions > 0 
+      ? `You answered ${answeredQuestions} questions in this ${session.session_type || 'interview'} session. Keep practicing to improve your scores!`
+      : 'No answers recorded for this session.',
+    
+    // Arrays for UI display (placeholder until AI)
+    strengths: [
+      'Clear articulation of answers',
+      'Good technical foundation',
+    ],
+    improvements: [
+      'Provide more specific examples',
+      'Structure responses with STAR method',
+    ],
+  };
+
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    data: results
+  });
+}));
+
 module.exports = router;
+

@@ -15,7 +15,7 @@ interface AuthContextType {
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
   signup: (name: string, email: string, password: string) => Promise<void>;
-  googleSignIn: (idToken: string) => Promise<void>;
+  googleSignIn: (token: string, tokenType?: 'idToken' | 'accessToken' | 'authCode') => Promise<void>;
   logout: () => void;
   updateProfile: (data: { name?: string }) => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -136,12 +136,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [router]);
 
   // Google Sign-In handler
-  const googleSignIn = useCallback(async (idToken: string) => {
+  const googleSignIn = useCallback(async (token: string, tokenType: 'idToken' | 'accessToken' | 'authCode' = 'authCode') => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await authApi.googleSignIn(idToken);
+      const response = await authApi.googleSignIn(token, tokenType);
       
       if (response.success && response.data) {
         setUser(response.data.user);

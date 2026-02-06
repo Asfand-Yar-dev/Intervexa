@@ -4,6 +4,7 @@ import { Inter, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/contexts/auth-context"
+import { GoogleOAuthWrapper } from "@/components/auth/google-oauth-wrapper"
 import { Toaster } from "sonner"
 import "./globals.css"
 
@@ -11,10 +12,10 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
 export const metadata: Metadata = {
-  title: "AI Interview Master - Master Your Interviews with AI",
+  title: "Intervexa",
   description:
     "Practice interviews with AI-powered mock sessions, get real-time feedback on voice and body language, and land your dream job.",
-  generator: "AI Interview Master",
+  generator: "Intervexa",
   icons: {
     icon: [
       {
@@ -22,7 +23,7 @@ export const metadata: Metadata = {
         media: "(prefers-color-scheme: light)",
       },
       {
-        url: "/icon-dark-32x32.png",
+        url: "/icon-dark1-32x32.png",
         media: "(prefers-color-scheme: dark)",
       },
       {
@@ -48,9 +49,11 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <AuthProvider>
-            {children}
-          </AuthProvider>
+          <GoogleOAuthWrapper>
+            <AuthProvider>
+              {children}
+            </AuthProvider>
+          </GoogleOAuthWrapper>
           <Toaster 
             theme="dark" 
             position="top-right"
