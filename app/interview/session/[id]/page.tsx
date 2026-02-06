@@ -69,8 +69,17 @@ export default function InterviewSessionPage() {
   useEffect(() => {
     async function init() {
       try {
+        // Load setup metadata from sessionStorage
+        const setupStr = sessionStorage.getItem('interviewSetup')
+        const setup = setupStr ? JSON.parse(setupStr) : null
+        
         // Load questions from backend
-        const response = await questionsApi.getRandom(5)
+        // Use setup metadata if available to filter questions
+        const response = await questionsApi.getRandom(5, setup ? {
+          category: setup.sessionType !== 'mixed' ? setup.sessionType : undefined
+          // We can add more filters here as the backend supports them
+        } : undefined)
+
         if (response.success && response.data && response.data.length > 0) {
           const mappedQuestions = response.data.map(mapBackendQuestion)
           setQuestions(mappedQuestions)
