@@ -247,8 +247,4 @@ This project is licensed under the MIT License.
 
 ## 👥 Authors
 
-- **FYP Team** - AI Web-Based Mock Interview System
-
----
-
-Made with ❤️ for better interview preparation
+- **FYP Team** - Intervexa
