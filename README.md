@@ -23,4 +23,4 @@ This will download all required node modules
 4. **Start the development server**
    ```bash
    pnpm run dev
-The frontend will be available at http://localhost:3000 (or the port shown in your terminal).
+The frontend will be available at http://localhost:3000 (or the port shown in your terminal)
