@@ -136,25 +136,24 @@ const UserSchema = new mongoose.Schema({
  * Pre-save middleware to hash password
  * Only hashes if password is modified and auth provider is 'local'
  */
-UserSchema.pre('save', async function(next) {
+UserSchema.pre('save', async function() {
   // Only hash the password if:
   // 1. It's a local auth user
   // 2. The password field exists and is modified
   if (this.authProvider !== AUTH_PROVIDERS.LOCAL || !this.isModified('password')) {
-    return next();
+    return;
   }
 
   // Skip if password is not provided (e.g., Google OAuth user)
   if (!this.password) {
-    return next();
+    return;
   }
 
   try {
     const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 10;
     this.password = await bcrypt.hash(this.password, saltRounds);
-    next();
   } catch (error) {
-    next(error);
+    throw error; // In async hooks, throwing an error is equivalent to next(error)
   }
 });
 
