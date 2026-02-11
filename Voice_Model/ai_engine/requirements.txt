@@ -1,0 +1,17 @@
+# AI Engine Dependencies for Smart Mock Interview System
+# Install with: pip install -r requirements.txt
+
+# Core ML Libraries
+transformers>=4.30.0
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Audio Processing
+librosa>=0.10.0
+soundfile>=0.12.0
+
+# Utilities
+numpy>=1.24.0
+
+# GUI Dependencies
+pyaudio>=0.2.13
