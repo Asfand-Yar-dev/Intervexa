@@ -56,8 +56,25 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // SECURITY: Prevent NoSQL injection attacks
-// Sanitizes req.body, req.query, req.params from $ and . operators
-app.use(mongoSanitize());
+// NOTE: express-mongo-sanitize v2 tries to set req.query which is read-only
+// in Express 5. We use a custom wrapper that sanitizes in-place instead.
+app.use((req, res, next) => {
+  // Sanitize body and params (writable in Express 5)
+  if (req.body) req.body = mongoSanitize.sanitize(req.body);
+  if (req.params) req.params = mongoSanitize.sanitize(req.params);
+
+  // Sanitize query values in-place (req.query is read-only in Express 5)
+  const query = req.query;
+  if (query && typeof query === 'object') {
+    for (const key of Object.keys(query)) {
+      if (typeof query[key] === 'string') {
+        query[key] = query[key].replace(/[\$\.]/g, '');
+      }
+    }
+  }
+
+  next();
+});
 
 // PERFORMANCE: Gzip compress responses
 app.use(compression());
