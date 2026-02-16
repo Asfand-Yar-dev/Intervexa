@@ -8,6 +8,9 @@ const Profile = require('./Profile');
 const InterviewSession = require('./InterviewSession');
 const Question = require('./Question');
 const Answer = require('./Answer');
+const AnswerAnalysis = require('./AnswerAnalysis');
+const Result = require('./Result');
+const InterviewQuestion = require('./InterviewQuestion');
 const NLPEvaluation = require('./NLPEvaluation');
 const FacialAnalysis = require('./FacialAnalysis');
 const VocalAnalysis = require('./VocalAnalysis');
@@ -22,6 +25,9 @@ module.exports = {
   InterviewSession,
   Question,
   Answer,
+  AnswerAnalysis,
+  Result,
+  InterviewQuestion,
   NLPEvaluation,
   FacialAnalysis,
   VocalAnalysis,

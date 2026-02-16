@@ -1,61 +1,39 @@
-# Intervexa
+# Intervexa — AI-Powered Mock Interview System
 
-> An intelligent AI-powered mock interview platform that helps users practice and improve their interview skills using real-time analysis.
+An AI-powered web application that helps users practice interviews with real-time feedback on voice, body language, and answer quality.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Node](https://img.shields.io/badge/node-%3E%3D16.0.0-brightgreen.svg)
-![Next.js](https://img.shields.io/badge/Next.js-14-black.svg)
+## Tech Stack
 
-## 📋 Overview
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 16, React 19, TailwindCSS 4, Radix UI |
+| Backend | Node.js, Express 5, MongoDB, Mongoose 9 |
+| Auth | JWT + Google OAuth 2.0 |
+| AI (Phase 5) | Python FastAPI microservice (planned) |
 
-Intervexa is a full-stack web application that provides:
-- 🎯 AI-powered mock interviews with real-time feedback
-- 📊 Comprehensive analysis of responses (NLP, facial, vocal)
-- 📈 Progress tracking and performance history
-- 🔐 Secure authentication (Email/Password & Google OAuth)
-- 🌙 Modern UI with dark/light mode support
+---
 
-## 🏗️ Project Structure
+## Prerequisites
 
-```
-AI-Web-Based-Mock-Interview-System/
-├── app/                    # Next.js Frontend (App Router)
-│   ├── dashboard/          # Dashboard pages
-│   ├── interview/          # Interview session pages
-│   ├── login/              # Authentication pages
-│   └── ...
-├── components/             # React UI Components
-│   ├── ui/                 # Shadcn UI components
-│   ├── auth/               # Auth components
-│   ├── dashboard/          # Dashboard components
-│   └── landing/            # Landing page components
-├── backend/                # Express.js Backend API
-│   ├── config/             # Configuration files
-│   ├── controllers/        # Route controllers
-│   ├── middleware/         # Express middleware
-│   ├── models/             # MongoDB models
-│   └── routes/             # API routes
-├── hooks/                  # Custom React hooks
-├── lib/                    # Utility functions
-└── public/                 # Static assets
-```
+Make sure you have the following installed:
 
-## 🚀 Quick Start
+- **Node.js** v18 or higher — [Download](https://nodejs.org/)
+- **MongoDB** running locally or a [MongoDB Atlas](https://www.mongodb.com/atlas) connection string
+- **pnpm** (for frontend) — Install with: `npm install -g pnpm`
+- **Git** — [Download](https://git-scm.com/)
 
-### Prerequisites
+---
 
-- **Node.js** v16 or higher
-- **MongoDB** (local or Atlas)
-- **pnpm** (recommended) or npm
+## Getting Started
 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/Asfand-Yar-dev/AI-Web-Based-Mock-Interview-System.git
-cd AI-Web-Based-Mock-Interview-System
+git clone https://github.com/your-username/your-repo-name.git
+cd your-repo-name
 ```
 
-### 2. Backend Setup
+### 2. Set Up the Backend
 
 ```bash
 # Navigate to backend
@@ -64,187 +42,160 @@ cd backend
 # Install dependencies
 npm install
 
-# Create environment file
+# Create your environment file
 cp .env.example .env
-
-# Edit .env with your settings:
-# - MONGO_URI=your_mongodb_connection_string
-# - JWT_SECRET=your_secret_key
-# - GOOGLE_CLIENT_ID=your_google_client_id
-
-# Start development server
-npm run dev
 ```
 
-Backend will run on `http://localhost:5000`
+Now open `backend/.env` and fill in your values:
 
-### 3. Frontend Setup
+| Variable | What to put |
+|----------|-------------|
+| `MONGO_URI` | Your MongoDB connection string |
+| `JWT_SECRET` | A random 64+ character string (generate with: `node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`) |
+| `GOOGLE_CLIENT_ID` | Your Google OAuth Client ID (optional, for Google Sign-In) |
+| `GOOGLE_CLIENT_SECRET` | Your Google OAuth Client Secret (optional) |
+
+Start the backend:
 
 ```bash
-# From project root
+# Development mode (auto-restart on changes)
+npm run dev
+
+# Or production mode
+npm start
+```
+
+The backend will start on **http://localhost:5000**. You should see:
+```
+🚀 Server running on port 5000
+✅ MongoDB Connected
+```
+
+### 3. Set Up the Frontend
+
+Open a **new terminal** and go back to the project root:
+
+```bash
+# Navigate to project root (not backend/)
 cd ..
 
-# Install dependencies
+# Install frontend dependencies
 pnpm install
-# or: npm install
 
-# Start development server
+# Create your environment file
+cp .env.example .env.local
+```
+
+Open `.env.local` and fill in:
+
+| Variable | What to put |
+|----------|-------------|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:5000` (default, no change needed for local dev) |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Same Google Client ID as in backend `.env` (optional) |
+
+Start the frontend:
+
+```bash
 pnpm dev
-# or: npm run dev
 ```
 
-Frontend will run on `http://localhost:3000`
+The frontend will start on **http://localhost:3000**.
 
-## 🔧 Environment Variables
+### 4. Open the App
 
-### Backend (.env)
+Open your browser and go to **http://localhost:3000**
 
-```env
-# Server
-PORT=5000
-NODE_ENV=development
+---
 
-# Database
-MONGO_URI=mongodb://localhost:27017/ai_interview_system
+## Project Structure
 
-# JWT
-JWT_SECRET=your-super-secret-jwt-key-32chars
-JWT_EXPIRES_IN=24h
-
-# Google OAuth
-GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-
-# CORS
-CORS_ORIGIN=http://localhost:3000
-
-# Security
-BCRYPT_SALT_ROUNDS=10
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX_REQUESTS=100
+```
+├── app/                    # Next.js pages (App Router)
+├── components/             # React components (UI, auth, dashboard)
+├── contexts/               # Auth context provider
+├── hooks/                  # Custom React hooks
+├── lib/                    # API client & utilities
+├── public/                 # Static assets
+├── backend/
+│   ├── config/             # Database, logger, constants
+│   ├── controllers/        # Route handlers
+│   ├── middleware/          # Auth, validation, error handling
+│   ├── models/             # Mongoose schemas (13 models)
+│   ├── routes/             # API route definitions
+│   ├── services/           # AI service integrations (placeholder)
+│   └── server.js           # Express server entry point
+└── Doc/                    # Architecture documentation
 ```
 
-### Frontend (.env.local)
+---
 
-```env
-NEXT_PUBLIC_API_URL=http://localhost:5000
-NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-```
-
-## 📚 API Documentation
-
-### Authentication Endpoints
+## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/users/register` | Register new user |
 | POST | `/api/users/login` | Login with email/password |
-| POST | `/api/users/google` | Sign in with Google |
+| POST | `/api/users/google` | Google OAuth sign-in |
 | GET | `/api/users/me` | Get current user profile |
-| PUT | `/api/users/me` | Update profile |
-| PUT | `/api/users/change-password` | Change password |
-| GET | `/api/users/verify-token` | Verify JWT token |
+| GET | `/api/users/stats` | Dashboard statistics |
+| POST | `/api/interviews/start` | Start interview session |
+| PUT | `/api/interviews/:id/end` | End interview session |
+| GET | `/api/questions` | Get questions (filtered) |
+| GET | `/api/questions/random` | Get random questions |
+| POST | `/api/answers/submit` | Submit an answer |
+| GET | `/api/results` | Get interview results |
+| GET | `/health` | Health check |
 
-### Interview Endpoints
+---
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/interviews/start` | Start new session |
-| GET | `/api/interviews/my-sessions` | Get user's sessions |
-| PUT | `/api/interviews/:id/end` | End a session |
+## Environment Variables
 
-Full API documentation: See `backend/API_TESTING.md`
+### Frontend (`.env.local`)
 
-## 🛠️ Tech Stack
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_API_URL` | Yes | Backend API URL |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | No | Google OAuth Client ID |
 
-### Frontend
-- **Framework:** Next.js 14 (App Router)
-- **Styling:** Tailwind CSS
-- **UI Components:** Shadcn UI
-- **Animations:** Framer Motion
-- **State Management:** React Context + Hooks
+### Backend (`backend/.env`)
 
-### Backend
-- **Runtime:** Node.js
-- **Framework:** Express.js
-- **Database:** MongoDB + Mongoose
-- **Authentication:** JWT + bcrypt
-- **OAuth:** Google Auth Library
-- **Validation:** express-validator
-- **Security:** Helmet, CORS, Rate Limiting
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PORT` | No | Server port (default: 5000) |
+| `MONGO_URI` | Yes | MongoDB connection string |
+| `JWT_SECRET` | Yes | JWT signing secret (64+ chars) |
+| `JWT_EXPIRES_IN` | No | Token expiry (default: 24h) |
+| `BCRYPT_SALT_ROUNDS` | No | Password hash cost (default: 12) |
+| `CORS_ORIGIN` | No | Allowed origins (default: http://localhost:3000) |
+| `GOOGLE_CLIENT_ID` | No | Google OAuth Client ID |
+| `GOOGLE_CLIENT_SECRET` | No | Google OAuth Client Secret |
 
-## 📁 Key Files
+See `backend/.env.example` for the full list including Phase 5 (AI) and Phase 6 (Production) variables.
 
-| File | Description |
-|------|-------------|
-| `backend/server.js` | Express server entry point |
-| `backend/controllers/authController.js` | Authentication logic |
-| `backend/middleware/auth.js` | JWT verification |
-| `backend/models/User.js` | User schema with bcrypt |
-| `app/layout.tsx` | Next.js root layout |
-| `app/page.tsx` | Landing page |
-| `components/auth/auth-form.tsx` | Login/Signup form |
+---
 
-## 🧪 Testing
-
-### Backend
-
-```bash
-cd backend
-
-# Postman Collection
-# Import backend/postman_collection.json into Postman
-
-# Or use cURL
-curl http://localhost:5000/health
-```
+## Available Scripts
 
 ### Frontend
 
-```bash
-pnpm dev
-# Visit http://localhost:3000
-```
-
-## 📦 Scripts
+| Command | Description |
+|---------|-------------|
+| `pnpm dev` | Start dev server (http://localhost:3000) |
+| `pnpm build` | Build for production |
+| `pnpm start` | Start production server |
+| `pnpm lint` | Run ESLint |
 
 ### Backend
 
-```bash
-npm run dev      # Development with nodemon
-npm start        # Production start
-```
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start with nodemon (auto-reload) |
+| `npm start` | Start production server |
+| `npm run start:prod` | Start in NODE_ENV=production |
+| `npm test` | Run tests (setup needed) |
 
-### Frontend
+---
 
-```bash
-pnpm dev         # Development server
-pnpm build       # Production build
-pnpm start       # Start production server
-pnpm lint        # Run ESLint
-```
+## License
 
-## 🔐 Security Features
-
-- ✅ Password hashing (bcrypt)
-- ✅ JWT authentication
-- ✅ Google OAuth 2.0
-- ✅ Input validation
-- ✅ Rate limiting
-- ✅ Security headers (Helmet)
-- ✅ CORS configuration
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
-## 👥 Authors
-
-- **FYP Team** - Intervexa
+This project is part of a Final Year Project (FYP).

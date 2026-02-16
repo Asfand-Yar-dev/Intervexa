@@ -30,7 +30,7 @@ module.exports = {
   nlpService,
   vocalService,
   facialService,
-  
+
   /**
    * Analyze an interview answer using all AI services
    * @param {Object} answerData - The answer data to analyze
@@ -42,15 +42,53 @@ module.exports = {
       vocalService.analyze(answerData.audioUrl),
       facialService.analyze(answerData.videoUrl),
     ]);
-    
-    return {
+
+    const aggregatedResult = {
       nlp: results[0].status === 'fulfilled' ? results[0].value : null,
       vocal: results[1].status === 'fulfilled' ? results[1].value : null,
       facial: results[2].status === 'fulfilled' ? results[2].value : null,
-      
+
       // Calculate combined score
       overallScore: calculateOverallScore(results),
     };
+
+    // -----------------------------------------------------------------
+    // PHASE 5: Save AnswerAnalysis record for result compilation
+    // -----------------------------------------------------------------
+    // When AI services return real data, uncomment to persist results:
+    //
+    // if (answerData.answerId && aggregatedResult.overallScore != null) {
+    //   const AnswerAnalysis = require('../models/AnswerAnalysis');
+    //   await AnswerAnalysis.findOneAndUpdate(
+    //     { answerId: answerData.answerId },
+    //     {
+    //       answerId: answerData.answerId,
+    //       confidenceScore: aggregatedResult.vocal?.metrics?.confidence || 0,
+    //       clarityScore: aggregatedResult.nlp?.score || 0,
+    //       technicalScore: aggregatedResult.nlp?.score || 0,
+    //       bodyLanguageScore: aggregatedResult.facial?.metrics?.bodyLanguage || 0,
+    //       voiceToneScore: aggregatedResult.vocal?.score || 0,
+    //       keywords: [],
+    //       strengths: [
+    //         ...(aggregatedResult.nlp?.feedback?.strengths || []),
+    //         ...(aggregatedResult.vocal?.feedback?.strengths || []),
+    //         ...(aggregatedResult.facial?.feedback?.strengths || []),
+    //       ],
+    //       improvements: [
+    //         ...(aggregatedResult.nlp?.feedback?.improvements || []),
+    //         ...(aggregatedResult.vocal?.feedback?.improvements || []),
+    //         ...(aggregatedResult.facial?.feedback?.improvements || []),
+    //       ],
+    //       detailedFeedback: `Content: ${aggregatedResult.nlp?.feedback?.summary || 'N/A'}. ` +
+    //         `Voice: ${aggregatedResult.vocal?.feedback?.summary || 'N/A'}. ` +
+    //         `Visual: ${aggregatedResult.facial?.feedback?.summary || 'N/A'}.`,
+    //     },
+    //     { upsert: true, new: true }
+    //   );
+    // }
+    // -----------------------------------------------------------------
+
+    return aggregatedResult;
   }
 };
 
@@ -60,24 +98,24 @@ module.exports = {
 function calculateOverallScore(results) {
   let totalWeight = 0;
   let weightedSum = 0;
-  
+
   // NLP (content quality) - 50% weight
   if (results[0].status === 'fulfilled' && results[0].value.score != null) {
     weightedSum += results[0].value.score * 0.5;
     totalWeight += 0.5;
   }
-  
+
   // Vocal analysis - 25% weight
   if (results[1].status === 'fulfilled' && results[1].value.score != null) {
     weightedSum += results[1].value.score * 0.25;
     totalWeight += 0.25;
   }
-  
+
   // Facial analysis - 25% weight
   if (results[2].status === 'fulfilled' && results[2].value.score != null) {
     weightedSum += results[2].value.score * 0.25;
     totalWeight += 0.25;
   }
-  
+
   return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : null;
 }

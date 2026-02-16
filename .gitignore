@@ -1,7 +1,7 @@
 # =============================================================================
-# AI INTERVIEW SYSTEM - ROOT GITIGNORE
+# INTERVEXA - AI INTERVIEW SYSTEM - GITIGNORE
 # =============================================================================
-# This file covers both frontend (Next.js) and backend (Node.js/Express)
+# Covers both: Frontend (Next.js) + Backend (Node.js/Express)
 
 # =============================================================================
 # DEPENDENCIES
@@ -10,15 +10,9 @@ node_modules/
 **/node_modules/
 
 # =============================================================================
-# NEXT.JS (FRONTEND)
+# ENVIRONMENT FILES (SENSITIVE — NEVER COMMIT!)
 # =============================================================================
-.next/
-out/
-build/
-
-# =============================================================================
-# ENVIRONMENT FILES
-# =============================================================================
+# Frontend
 .env
 .env.local
 .env.development.local
@@ -26,16 +20,20 @@ build/
 .env.production.local
 .env*.local
 
-# Backend environment files (IMPORTANT: Never commit secrets!)
+# Backend
 backend/.env
 backend/.env.local
+backend/.env.development
+backend/.env.production
 backend/.env.*
+!backend/.env.example
 
 # =============================================================================
-# BUILD OUTPUT
+# NEXT.JS (FRONTEND BUILD)
 # =============================================================================
-dist/
-.cache/
+.next/
+out/
+build/
 
 # =============================================================================
 # LOG FILES
@@ -48,6 +46,14 @@ yarn-error.log*
 logs/
 combined.log
 error.log
+backend/combined.log
+backend/error.log
+
+# =============================================================================
+# UPLOADED FILES (user audio/video — do NOT push to GitHub)
+# =============================================================================
+backend/uploads/
+uploads/
 
 # =============================================================================
 # IDE AND EDITORS
@@ -72,7 +78,7 @@ Thumbs.db
 desktop.ini
 
 # =============================================================================
-# TESTING
+# TESTING & COVERAGE
 # =============================================================================
 coverage/
 .nyc_output/
@@ -92,8 +98,15 @@ temp/
 next-env.d.ts
 
 # =============================================================================
+# SECRETS & CERTIFICATES
+# =============================================================================
+*.pem
+*.key
+*.cert
+*.p12
+
+# =============================================================================
 # VERCEL & MISC
 # =============================================================================
 .vercel
-*.pem
 .eslintcache

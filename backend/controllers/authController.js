@@ -57,10 +57,10 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
  */
 const generateToken = (user) => {
   return jwt.sign(
-    { 
-      id: user._id, 
+    {
+      id: user._id,
       email: user.email,
-      role: user.user_role 
+      role: user.user_role
     },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || TOKEN_EXPIRY.ACCESS }
@@ -99,26 +99,28 @@ const generateToken = (user) => {
  * -----------------------------------------------------------------------------
  */
 const register = async (req, res) => {
-  const { name, email, password, role } = req.body;
+  // SECURITY FIX: Do NOT destructure 'role' from req.body
+  // Any user could register as admin by sending { role: 'admin' }
+  const { name, email, password } = req.body;
 
   // Step 1: Check if user with this email already exists
   const existingUser = await User.findOne({ email: email.toLowerCase() });
-  
+
   if (existingUser) {
     // Return 409 Conflict status for duplicate email
     throw new ApiError(
-      HTTP_STATUS.CONFLICT, 
+      HTTP_STATUS.CONFLICT,
       'An account with this email already exists. Please use a different email or login.'
     );
   }
 
   // Step 2: Create new user object
-  // Note: Password will be automatically hashed by the User model's pre-save hook
-  const user = new User({ 
-    name: name.trim(), 
-    email: email.toLowerCase().trim(), 
+  // SECURITY: Role is ALWAYS 'user'. Admin roles must be assigned by existing admins.
+  const user = new User({
+    name: name.trim(),
+    email: email.toLowerCase().trim(),
     password,
-    user_role: role || 'user' // Default role is 'user'
+    user_role: 'user' // Hardcoded — never trust client input for roles
   });
 
   // Step 3: Save user to database
@@ -183,12 +185,12 @@ const login = async (req, res) => {
   // Step 1: Find user by email
   // Note: We use findByEmail which includes the password field (normally excluded)
   const user = await User.findByEmail(email.toLowerCase());
-  
+
   // Step 2: Check if user exists
   if (!user) {
     // Generic error message for security (doesn't reveal if email exists)
     throw new ApiError(
-      HTTP_STATUS.UNAUTHORIZED, 
+      HTTP_STATUS.UNAUTHORIZED,
       'Invalid email or password. Please check your credentials.'
     );
   }
@@ -196,7 +198,7 @@ const login = async (req, res) => {
   // Step 3: Check if user account is active
   if (!user.isActive) {
     throw new ApiError(
-      HTTP_STATUS.UNAUTHORIZED, 
+      HTTP_STATUS.UNAUTHORIZED,
       'Your account has been deactivated. Please contact support.'
     );
   }
@@ -204,11 +206,11 @@ const login = async (req, res) => {
   // Step 4: Compare passwords using bcrypt
   // comparePassword is a method defined in User model that uses bcrypt.compare()
   const isPasswordValid = await user.comparePassword(password);
-  
+
   if (!isPasswordValid) {
     // Generic error message for security
     throw new ApiError(
-      HTTP_STATUS.UNAUTHORIZED, 
+      HTTP_STATUS.UNAUTHORIZED,
       'Invalid email or password. Please check your credentials.'
     );
   }
@@ -259,7 +261,7 @@ const login = async (req, res) => {
 const getProfile = async (req, res) => {
   // req.user is set by the authenticate middleware from JWT payload
   const user = await User.findById(req.user.id);
-  
+
   if (!user) {
     throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User account not found.');
   }
@@ -299,9 +301,9 @@ const getProfile = async (req, res) => {
  */
 const updateProfile = async (req, res) => {
   const { name } = req.body;
-  
+
   const user = await User.findById(req.user.id);
-  
+
   if (!user) {
     throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User account not found.');
   }
@@ -355,7 +357,7 @@ const changePassword = async (req, res) => {
   // Validate required fields
   if (!currentPassword || !newPassword) {
     throw new ApiError(
-      HTTP_STATUS.BAD_REQUEST, 
+      HTTP_STATUS.BAD_REQUEST,
       'Both current password and new password are required.'
     );
   }
@@ -363,24 +365,24 @@ const changePassword = async (req, res) => {
   // Validate new password length
   if (newPassword.length < 6) {
     throw new ApiError(
-      HTTP_STATUS.BAD_REQUEST, 
+      HTTP_STATUS.BAD_REQUEST,
       'New password must be at least 6 characters long.'
     );
   }
 
   // Get user with password field
   const user = await User.findById(req.user.id).select('+password');
-  
+
   if (!user) {
     throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User account not found.');
   }
 
   // Verify current password
   const isPasswordValid = await user.comparePassword(currentPassword);
-  
+
   if (!isPasswordValid) {
     throw new ApiError(
-      HTTP_STATUS.UNAUTHORIZED, 
+      HTTP_STATUS.UNAUTHORIZED,
       'Current password is incorrect. Please try again.'
     );
   }
@@ -417,7 +419,7 @@ const changePassword = async (req, res) => {
 const verifyToken = async (req, res) => {
   // If we reach here, the token is valid (auth middleware passed)
   const user = await User.findById(req.user.id);
-  
+
   if (!user || !user.isActive) {
     throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'Invalid or expired token.');
   }
@@ -451,48 +453,8 @@ const verifyToken = async (req, res) => {
  * 5. Finds existing user or creates new user in database
  * 6. Issues our own JWT token for subsequent API calls
  * 
- * GOOGLE TOKEN VERIFICATION:
- * - Uses google-auth-library to verify the ID token
- * - Validates the token's signature
- * - Checks that the token was issued for our app (audience check)
- * - Extracts user payload (email, name, sub, picture)
- * 
- * USER CREATION:
- * - If user exists with Google ID: Login
- * - If user exists with same email: Link Google account
- * - If new user: Create account with Google info
- * 
  * @route   POST /api/users/google
  * @access  Public
- * 
- * @param {Object} req - Express request object
- * @param {Object} req.body - Request body
- * @param {string} req.body.idToken - Google ID token from frontend
- * @param {Object} res - Express response object
- * 
- * @returns {Object} JSON response with user data and JWT token
- * 
- * @throws {ApiError} 400 - If ID token is missing
- * @throws {ApiError} 401 - If Google token is invalid or expired
- * @throws {ApiError} 500 - If database error occurs
- * 
- * @example
- * // Frontend sends:
- * POST /api/users/google
- * {
- *   "idToken": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
- * }
- * 
- * // Backend responds:
- * {
- *   "success": true,
- *   "message": "Google sign-in successful!",
- *   "data": {
- *     "user": { ... },
- *     "token": "eyJhbGciOiJIUzI1NiIs...",
- *     "isNewUser": false
- *   }
- * }
  * -----------------------------------------------------------------------------
  */
 const googleSignIn = async (req, res) => {
@@ -508,18 +470,14 @@ const googleSignIn = async (req, res) => {
 
   // Step 2: Verify the Google token and get user info
   let googleProfile;
-  
+
   try {
     if (idToken) {
-      /**
-       * ID Token Flow (from GoogleLogin component)
-       * Verify the ID token using Google's OAuth2Client
-       */
       const ticket = await googleClient.verifyIdToken({
         idToken: idToken,
         audience: process.env.GOOGLE_CLIENT_ID
       });
-      
+
       const payload = ticket.getPayload();
       googleProfile = {
         googleId: payload.sub,
@@ -527,12 +485,8 @@ const googleSignIn = async (req, res) => {
         name: payload.name || 'Google User',
         picture: payload.picture
       };
-      
+
     } else if (authCode) {
-      /**
-       * Authorization Code Flow (from useGoogleLogin with flow: 'auth-code')
-       * Exchange the authorization code for access token
-       */
       const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -540,28 +494,27 @@ const googleSignIn = async (req, res) => {
           code: authCode,
           client_id: process.env.GOOGLE_CLIENT_ID,
           client_secret: process.env.GOOGLE_CLIENT_SECRET,
-          redirect_uri: 'postmessage', // This is important for popup mode
+          redirect_uri: 'postmessage',
           grant_type: 'authorization_code'
         })
       });
-      
+
       if (!tokenResponse.ok) {
         const errorData = await tokenResponse.json();
         logger.error(`Google token exchange failed: ${JSON.stringify(errorData)}`);
         throw new Error('Failed to exchange authorization code');
       }
-      
+
       const tokens = await tokenResponse.json();
-      
-      // Now fetch user info with the access token
+
       const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
         headers: { Authorization: `Bearer ${tokens.access_token}` }
       });
-      
+
       if (!userInfoResponse.ok) {
         throw new Error('Failed to fetch user info from Google');
       }
-      
+
       const userInfo = await userInfoResponse.json();
       googleProfile = {
         googleId: userInfo.sub,
@@ -569,20 +522,16 @@ const googleSignIn = async (req, res) => {
         name: userInfo.name || 'Google User',
         picture: userInfo.picture
       };
-      
+
     } else if (accessToken) {
-      /**
-       * Access Token Flow (from useGoogleLogin hook with implicit flow)
-       * Fetch user info from Google's userinfo endpoint
-       */
       const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
-      
+
       if (!userInfoResponse.ok) {
         throw new Error('Failed to fetch user info from Google');
       }
-      
+
       const userInfo = await userInfoResponse.json();
       googleProfile = {
         googleId: userInfo.sub,
@@ -591,23 +540,21 @@ const googleSignIn = async (req, res) => {
         picture: userInfo.picture
       };
     }
-    
+
   } catch (error) {
     logger.error(`Google token verification failed: ${error.message}`);
-    
+
     throw new ApiError(
       HTTP_STATUS.UNAUTHORIZED,
       'Invalid or expired Google token. Please try signing in again.'
     );
   }
 
-  // Log for debugging
   logger.info(`Google Sign-In attempt for: ${googleProfile.email}`);
 
   // Step 3: Find or create user in our database
   const { user, isNewUser } = await User.findOrCreateFromGoogle(googleProfile);
 
-  // Step 4: Check if user account is active
   if (!user.isActive) {
     throw new ApiError(
       HTTP_STATUS.UNAUTHORIZED,
@@ -618,17 +565,15 @@ const googleSignIn = async (req, res) => {
   // Step 5: Generate our own JWT token
   const token = generateToken(user);
 
-  // Step 6: Log the event
   if (isNewUser) {
     logger.info(`New user registered via Google: ${googleProfile.email}`);
   } else {
     logger.info(`User logged in via Google: ${googleProfile.email}`);
   }
 
-  // Step 7: Send success response
   res.status(isNewUser ? HTTP_STATUS.CREATED : HTTP_STATUS.OK).json({
     success: true,
-    message: isNewUser 
+    message: isNewUser
       ? 'Account created successfully with Google! Welcome to AI Interview System.'
       : 'Google sign-in successful! Welcome back.',
     data: {
@@ -640,6 +585,277 @@ const googleSignIn = async (req, res) => {
   });
 };
 
+/**
+ * =============================================================================
+ * MISSING PHASE 2 ENDPOINTS — ADDED PER ARCHITECTURE DOCUMENT
+ * =============================================================================
+ */
+
+/**
+ * -----------------------------------------------------------------------------
+ * HELPER: Generate Refresh Token
+ * -----------------------------------------------------------------------------
+ * Creates a longer-lived refresh token for token rotation.
+ */
+const generateRefreshToken = (user) => {
+  return jwt.sign(
+    { id: user._id, type: 'refresh' },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || TOKEN_EXPIRY.REFRESH }
+  );
+};
+
+/**
+ * -----------------------------------------------------------------------------
+ * CONTROLLER: Logout
+ * -----------------------------------------------------------------------------
+ * Invalidates the user's refresh token.
+ * 
+ * NOTE: JWTs are stateless and cannot truly be "invalidated" server-side
+ * without a token blacklist (Redis). This endpoint clears the refresh token
+ * so the user cannot get new access tokens.
+ * 
+ * @route   POST /api/users/logout
+ * @access  Private
+ * -----------------------------------------------------------------------------
+ */
+const logout = async (req, res) => {
+  const user = await User.findById(req.user.id).select('+refreshToken');
+
+  if (user) {
+    user.refreshToken = null;
+    await user.save();
+  }
+
+  logger.info(`User logged out: ${req.user.email || req.user.id}`);
+
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: 'Logged out successfully.'
+  });
+};
+
+/**
+ * -----------------------------------------------------------------------------
+ * CONTROLLER: Refresh Token
+ * -----------------------------------------------------------------------------
+ * Issues a new access token using a valid refresh token.
+ * Implements token rotation: old refresh token is invalidated.
+ * 
+ * @route   POST /api/users/refresh-token
+ * @access  Public (but requires valid refresh token in body)
+ * -----------------------------------------------------------------------------
+ */
+const refreshTokenHandler = async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) {
+    throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Refresh token is required.');
+  }
+
+  // Verify the refresh token
+  let decoded;
+  try {
+    decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+  } catch (error) {
+    throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'Invalid or expired refresh token. Please log in again.');
+  }
+
+  // Ensure it's actually a refresh token
+  if (decoded.type !== 'refresh') {
+    throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'Invalid token type.');
+  }
+
+  // Find the user and verify the stored refresh token matches
+  const user = await User.findById(decoded.id).select('+refreshToken');
+
+  if (!user || !user.isActive) {
+    throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'User not found or account deactivated.');
+  }
+
+  if (user.refreshToken !== refreshToken) {
+    // Token rotation: if someone uses an old refresh token, it may be stolen
+    // Invalidate ALL tokens for safety
+    user.refreshToken = null;
+    await user.save();
+    logger.warn(`Possible token theft detected for user: ${user.email}`);
+    throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'Refresh token has been revoked. Please log in again.');
+  }
+
+  // Generate new token pair (token rotation)
+  const newAccessToken = generateToken(user);
+  const newRefreshToken = generateRefreshToken(user);
+
+  // Store new refresh token (invalidates old one)
+  user.refreshToken = newRefreshToken;
+  await user.save();
+
+  logger.info(`Token refreshed for user: ${user.email}`);
+
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: 'Token refreshed successfully.',
+    data: {
+      token: newAccessToken,
+      refreshToken: newRefreshToken
+    }
+  });
+};
+
+/**
+ * -----------------------------------------------------------------------------
+ * CONTROLLER: Forgot Password
+ * -----------------------------------------------------------------------------
+ * Generates a password reset token and returns it.
+ * 
+ * In production, this token should be sent via email. For now, the token
+ * is returned in the response for development/testing purposes.
+ * 
+ * @route   POST /api/users/forgot-password
+ * @access  Public
+ * -----------------------------------------------------------------------------
+ */
+const crypto = require('crypto');
+
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Email address is required.');
+  }
+
+  const user = await User.findOne({ email: email.toLowerCase() });
+
+  if (!user) {
+    // Don't reveal whether email exists — always return success
+    return res.status(HTTP_STATUS.OK).json({
+      success: true,
+      message: 'If an account with that email exists, a password reset link has been sent.'
+    });
+  }
+
+  if (user.authProvider === 'google') {
+    throw new ApiError(
+      HTTP_STATUS.BAD_REQUEST,
+      'This account uses Google Sign-In. Password reset is not applicable.'
+    );
+  }
+
+  // Generate a cryptographically secure reset token
+  const resetToken = crypto.randomBytes(32).toString('hex');
+
+  // Hash the token before storing (never store plain tokens in DB)
+  const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+  // Store hashed token + expiry (30 minutes)
+  user.passwordResetToken = hashedToken;
+  user.passwordResetExpires = new Date(Date.now() + 30 * 60 * 1000);
+  await user.save();
+
+  logger.info(`Password reset requested for: ${email}`);
+
+  // TODO: In production, send this token via email instead of returning it
+  // For now, return the unhashed token in response for development
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: 'If an account with that email exists, a password reset link has been sent.',
+    // DEV ONLY — remove in production:
+    ...(process.env.NODE_ENV !== 'production' && {
+      devOnly_resetToken: resetToken,
+      devOnly_note: 'This token is only exposed in development. In production, it would be emailed.'
+    })
+  });
+};
+
+/**
+ * -----------------------------------------------------------------------------
+ * CONTROLLER: Reset Password
+ * -----------------------------------------------------------------------------
+ * Resets the user's password using the token from forgotPassword.
+ * 
+ * @route   POST /api/users/reset-password
+ * @access  Public (but requires valid reset token)
+ * -----------------------------------------------------------------------------
+ */
+const resetPassword = async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  if (!token || !newPassword) {
+    throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Reset token and new password are required.');
+  }
+
+  if (newPassword.length < 6) {
+    throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'New password must be at least 6 characters long.');
+  }
+
+  // Hash the provided token to compare with stored hash
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+  // Find user with matching token that hasn't expired
+  const user = await User.findOne({
+    passwordResetToken: hashedToken,
+    passwordResetExpires: { $gt: new Date() } // Token must not be expired
+  }).select('+passwordResetToken +passwordResetExpires');
+
+  if (!user) {
+    throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid or expired reset token. Please request a new one.');
+  }
+
+  // Update password (pre-save hook will hash it)
+  user.password = newPassword;
+  user.passwordResetToken = undefined;
+  user.passwordResetExpires = undefined;
+  await user.save();
+
+  logger.info(`Password reset completed for: ${user.email}`);
+
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: 'Password has been reset successfully. You can now log in with your new password.'
+  });
+};
+
+/**
+ * -----------------------------------------------------------------------------
+ * CONTROLLER: Update User Settings
+ * -----------------------------------------------------------------------------
+ * Updates the user's notification preferences.
+ * 
+ * @route   PATCH /api/users/settings
+ * @access  Private
+ * -----------------------------------------------------------------------------
+ */
+const updateSettings = async (req, res) => {
+  const { emailNotifications, interviewReminders, resultNotifications } = req.body;
+
+  const user = await User.findById(req.user.id);
+
+  if (!user) {
+    throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User account not found.');
+  }
+
+  // Only update fields that are explicitly provided
+  if (emailNotifications !== undefined) {
+    user.settings.emailNotifications = Boolean(emailNotifications);
+  }
+  if (interviewReminders !== undefined) {
+    user.settings.interviewReminders = Boolean(interviewReminders);
+  }
+  if (resultNotifications !== undefined) {
+    user.settings.resultNotifications = Boolean(resultNotifications);
+  }
+
+  await user.save();
+
+  logger.info(`Settings updated for user: ${user.email}`);
+
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: 'Settings updated successfully.',
+    data: { settings: user.settings }
+  });
+};
+
 // Export all controller functions
 module.exports = {
   register,
@@ -648,5 +864,12 @@ module.exports = {
   getProfile,
   updateProfile,
   changePassword,
-  verifyToken
+  verifyToken,
+  // Phase 2 additions:
+  logout,
+  refreshToken: refreshTokenHandler,
+  forgotPassword,
+  resetPassword,
+  updateSettings,
 };
+

@@ -1,56 +1,59 @@
 /**
  * Facial Analysis Model
  * Stores facial expression analysis results
+ * 
+ * NOTE: Updated field names from snake_case to camelCase for
+ * consistency with Answer, AnswerAnalysis, and InterviewQuestion models.
  */
 
 const mongoose = require('mongoose');
 
 const facialSchema = new mongoose.Schema({
-  session_id: { 
-    type: mongoose.Schema.Types.ObjectId, 
+  interviewId: {
+    type: mongoose.Schema.Types.ObjectId,
     ref: 'InterviewSession',
-    required: [true, 'Session ID is required']
+    required: [true, 'Interview session ID is required']
   },
-  answer_id: {
+  answerId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Answer'
   },
-  confidence_score: {
+  confidenceScore: {
     type: Number,
     min: 0,
     max: 100
   },
-  confidence_feedback: {
+  confidenceFeedback: {
     type: String,
     trim: true
   },
-  stress_score: {
+  stressScore: {
     type: Number,
     min: 0,
     max: 100
   },
-  stress_feedback: {
+  stressFeedback: {
     type: String,
     trim: true
   },
-  engagement_score: {
+  engagementScore: {
     type: Number,
     min: 0,
     max: 100
   },
-  engagement_feedback: {
+  engagementFeedback: {
     type: String,
     trim: true
   },
-  emotions_detected: [{
+  emotionsDetected: [{
     emotion: String,
     percentage: Number,
     timestamp: Date
   }]
-}, { 
-  timestamps: true 
+}, {
+  timestamps: true
 });
 
-facialSchema.index({ session_id: 1 });
+facialSchema.index({ interviewId: 1 });
 
 module.exports = mongoose.model('FacialAnalysis', facialSchema);

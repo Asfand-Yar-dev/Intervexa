@@ -19,10 +19,17 @@ const SESSION_STATUS = {
 };
 
 // Question Difficulty Levels
+// IMPORTANT: Must be lowercase — used in both Question and InterviewSession schemas
 const DIFFICULTY_LEVELS = {
-  EASY: 'Easy',
-  MEDIUM: 'Medium',
-  HARD: 'Hard'
+  EASY: 'easy',
+  MEDIUM: 'medium',
+  HARD: 'hard'
+};
+
+// Authentication Providers
+const AUTH_PROVIDERS = {
+  LOCAL: 'local',
+  GOOGLE: 'google'
 };
 
 // Schedule Status
@@ -70,6 +77,7 @@ module.exports = {
   USER_ROLES,
   SESSION_STATUS,
   DIFFICULTY_LEVELS,
+  AUTH_PROVIDERS,
   SCHEDULE_STATUS,
   PAYMENT_STATUS,
   HTTP_STATUS,

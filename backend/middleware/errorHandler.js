@@ -15,7 +15,7 @@ class ApiError extends Error {
     this.statusCode = statusCode;
     this.isOperational = isOperational;
     this.success = false;
-    
+
     Error.captureStackTrace(this, this.constructor);
   }
 }
@@ -82,10 +82,14 @@ const errorHandler = (err, req, res, next) => {
     message = 'Token expired';
   }
 
+  // SECURITY: Only include stack trace in development
+  // Safe default: if NODE_ENV is not explicitly 'development', hide internals
+  const isDev = process.env.NODE_ENV === 'development';
+
   res.status(statusCode).json({
     success: false,
     message,
-    ...(process.env.NODE_ENV === 'development' && {
+    ...(isDev && {
       stack: err.stack,
       error: err
     })

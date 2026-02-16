@@ -39,7 +39,7 @@ const UserSchema = new mongoose.Schema({
     minlength: [2, 'Name must be at least 2 characters'],
     maxlength: [50, 'Name cannot exceed 50 characters']
   },
-  
+
   email: {
     type: String,
     required: [true, 'Email is required'],
@@ -48,11 +48,11 @@ const UserSchema = new mongoose.Schema({
     trim: true,
     match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email']
   },
-  
+
   // ========================
   // AUTHENTICATION FIELDS
   // ========================
-  
+
   /**
    * Password field - only required for 'local' auth provider
    * For Google OAuth users, this will be undefined
@@ -61,12 +61,12 @@ const UserSchema = new mongoose.Schema({
     type: String,
     minlength: [6, 'Password must be at least 6 characters'],
     select: false, // Don't include password in queries by default
-    required: function() {
+    required: function () {
       // Password is only required for local authentication
       return this.authProvider === AUTH_PROVIDERS.LOCAL;
     }
   },
-  
+
   /**
    * Authentication Provider
    * Identifies how the user was registered
@@ -78,7 +78,7 @@ const UserSchema = new mongoose.Schema({
     enum: Object.values(AUTH_PROVIDERS),
     default: AUTH_PROVIDERS.LOCAL
   },
-  
+
   /**
    * Google OAuth specific fields
    * Only populated for users who signed in with Google
@@ -88,7 +88,7 @@ const UserSchema = new mongoose.Schema({
     unique: true,
     sparse: true // Allows null values while maintaining uniqueness for non-null
   },
-  
+
   /**
    * Profile picture URL
    * Typically populated from Google profile for OAuth users
@@ -97,7 +97,7 @@ const UserSchema = new mongoose.Schema({
     type: String,
     default: null
   },
-  
+
   // ========================
   // USER ROLE & STATUS
   // ========================
@@ -106,12 +106,12 @@ const UserSchema = new mongoose.Schema({
     enum: Object.values(USER_ROLES),
     default: USER_ROLES.USER
   },
-  
+
   isActive: {
     type: Boolean,
     default: true
   },
-  
+
   /**
    * Email verification status
    * Google OAuth users are automatically verified
@@ -120,10 +120,33 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  
+
   lastLogin: {
     type: Date
-  }
+  },
+
+  // Architecture Doc Section 5.1: Notification preferences
+  settings: {
+    emailNotifications: { type: Boolean, default: true },
+    interviewReminders: { type: Boolean, default: true },
+    resultNotifications: { type: Boolean, default: true },
+  },
+
+  // Phase 2: Refresh token for token rotation
+  refreshToken: {
+    type: String,
+    select: false, // Don't include in queries by default
+  },
+
+  // Phase 2: Forgot/Reset password flow
+  passwordResetToken: {
+    type: String,
+    select: false,
+  },
+  passwordResetExpires: {
+    type: Date,
+    select: false,
+  },
 }, {
   timestamps: true // Adds createdAt and updatedAt automatically
 });
@@ -136,7 +159,7 @@ const UserSchema = new mongoose.Schema({
  * Pre-save middleware to hash password
  * Only hashes if password is modified and auth provider is 'local'
  */
-UserSchema.pre('save', async function() {
+UserSchema.pre('save', async function () {
   // Only hash the password if:
   // 1. It's a local auth user
   // 2. The password field exists and is modified
@@ -150,7 +173,8 @@ UserSchema.pre('save', async function() {
   }
 
   try {
-    const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 10;
+    // Architecture doc specifies bcrypt cost 12+
+    const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 12;
     this.password = await bcrypt.hash(this.password, saltRounds);
   } catch (error) {
     throw error; // In async hooks, throwing an error is equivalent to next(error)
@@ -167,7 +191,7 @@ UserSchema.pre('save', async function() {
  * @param {string} candidatePassword - Password to compare
  * @returns {Promise<boolean>} - True if passwords match
  */
-UserSchema.methods.comparePassword = async function(candidatePassword) {
+UserSchema.methods.comparePassword = async function (candidatePassword) {
   // If user registered with Google, they don't have a password
   if (this.authProvider === AUTH_PROVIDERS.GOOGLE) {
     return false;
@@ -181,7 +205,7 @@ UserSchema.methods.comparePassword = async function(candidatePassword) {
  * 
  * @returns {Object} - User object without password and internal fields
  */
-UserSchema.methods.toSafeObject = function() {
+UserSchema.methods.toSafeObject = function () {
   const userObject = this.toObject();
   delete userObject.password;
   delete userObject.__v;
@@ -199,7 +223,7 @@ UserSchema.methods.toSafeObject = function() {
  * @param {string} email - User's email address
  * @returns {Promise<User>} - User document with password field
  */
-UserSchema.statics.findByEmail = function(email) {
+UserSchema.statics.findByEmail = function (email) {
   return this.findOne({ email: email.toLowerCase() }).select('+password');
 };
 
@@ -210,7 +234,7 @@ UserSchema.statics.findByEmail = function(email) {
  * @param {string} googleId - Google's unique user ID
  * @returns {Promise<User>} - User document
  */
-UserSchema.statics.findByGoogleId = function(googleId) {
+UserSchema.statics.findByGoogleId = function (googleId) {
   return this.findOne({ googleId });
 };
 
@@ -225,22 +249,22 @@ UserSchema.statics.findByGoogleId = function(googleId) {
  * @param {string} googleProfile.picture - Profile picture URL
  * @returns {Promise<{user: User, isNewUser: boolean}>}
  */
-UserSchema.statics.findOrCreateFromGoogle = async function(googleProfile) {
+UserSchema.statics.findOrCreateFromGoogle = async function (googleProfile) {
   const { googleId, email, name, picture } = googleProfile;
-  
+
   // First, try to find user by Google ID
   let user = await this.findOne({ googleId });
-  
+
   if (user) {
     // User exists with this Google ID - update last login
     user.lastLogin = new Date();
     await user.save();
     return { user, isNewUser: false };
   }
-  
+
   // Check if user exists with this email (maybe registered with email/password)
   user = await this.findOne({ email: email.toLowerCase() });
-  
+
   if (user) {
     // User exists with email - link Google account
     user.googleId = googleId;
@@ -251,7 +275,7 @@ UserSchema.statics.findOrCreateFromGoogle = async function(googleProfile) {
     await user.save();
     return { user, isNewUser: false };
   }
-  
+
   // No user exists - create new user
   user = await this.create({
     name,
@@ -262,7 +286,7 @@ UserSchema.statics.findOrCreateFromGoogle = async function(googleProfile) {
     isEmailVerified: true, // Google emails are verified
     lastLogin: new Date()
   });
-  
+
   return { user, isNewUser: true };
 };
 

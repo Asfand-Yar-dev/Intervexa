@@ -1,64 +1,67 @@
 /**
  * NLP Evaluation Model
  * Stores natural language processing evaluation results
+ * 
+ * NOTE: Updated field names from snake_case to camelCase for
+ * consistency with Answer, AnswerAnalysis, and InterviewQuestion models.
  */
 
 const mongoose = require('mongoose');
 
 const nlpSchema = new mongoose.Schema({
-  answer_id: { 
-    type: mongoose.Schema.Types.ObjectId, 
+  answerId: {
+    type: mongoose.Schema.Types.ObjectId,
     ref: 'Answer',
     required: [true, 'Answer ID is required']
   },
-  relevance_score: {
+  relevanceScore: {
     type: Number,
     min: 0,
     max: 100
   },
-  relevance_feedback: {
+  relevanceFeedback: {
     type: String,
     trim: true
   },
-  fluency_score: {
+  fluencyScore: {
     type: Number,
     min: 0,
     max: 100
   },
-  fluency_feedback: {
+  fluencyFeedback: {
     type: String,
     trim: true
   },
-  clarity_score: {
+  clarityScore: {
     type: Number,
     min: 0,
     max: 100
   },
-  clarity_feedback: {
+  clarityFeedback: {
     type: String,
     trim: true
   },
-  overall_score: {
+  overallScore: {
     type: Number,
     min: 0,
     max: 100
   },
-  overall_feedback: {
+  overallFeedback: {
     type: String,
     trim: true
   },
-  keywords_matched: [{
+  keywordsMatched: [{
     type: String,
     trim: true
   }],
-  improvement_suggestions: [{
+  improvementSuggestions: [{
     type: String,
     trim: true
   }]
-}, { 
-  timestamps: true 
+}, {
+  timestamps: true
 });
 
-nlpSchema.index({ answer_id: 1 });
+nlpSchema.index({ answerId: 1 });
 
 module.exports = mongoose.model('NLPEvaluation', nlpSchema);

@@ -4,7 +4,7 @@
  */
 
 const { authenticate, authorize, optionalAuth } = require('./auth');
-const { 
+const {
   validate,
   isValidObjectId,
   registerValidation,
@@ -14,19 +14,20 @@ const {
   addQuestionValidation,
   submitAnswerValidation
 } = require('./validation');
-const { 
-  ApiError, 
-  asyncHandler, 
-  notFoundHandler, 
-  errorHandler 
+const {
+  ApiError,
+  asyncHandler,
+  notFoundHandler,
+  errorHandler
 } = require('./errorHandler');
+const upload = require('./uploadMiddleware');
 
 module.exports = {
   // Authentication
   authenticate,
   authorize,
   optionalAuth,
-  
+
   // Validation
   validate,
   isValidObjectId,
@@ -36,10 +37,13 @@ module.exports = {
   userIdParamValidation,
   addQuestionValidation,
   submitAnswerValidation,
-  
+
   // Error Handling
   ApiError,
   asyncHandler,
   notFoundHandler,
-  errorHandler
+  errorHandler,
+
+  // File Upload
+  upload,
 };

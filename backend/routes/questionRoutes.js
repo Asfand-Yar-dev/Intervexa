@@ -7,7 +7,7 @@ const express = require('express');
 const Question = require('../models/Question');
 const { HTTP_STATUS, DIFFICULTY_LEVELS } = require('../config/constants');
 const { asyncHandler, ApiError } = require('../middleware/errorHandler');
-const { authenticate, optionalAuth } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
 const { addQuestionValidation } = require('../middleware/validation');
 const logger = require('../config/logger');
 
@@ -18,20 +18,20 @@ const router = express.Router();
  * @desc    Get all questions with optional filters
  * @access  Public (or Private depending on your needs)
  */
-router.get('/', optionalAuth, asyncHandler(async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { category, difficulty, limit = 20, page = 1, search } = req.query;
-  
+
   const query = { isActive: true };
-  
+
   // Apply filters
   if (category) {
     query.category = { $regex: category, $options: 'i' };
   }
-  
+
   if (difficulty && Object.values(DIFFICULTY_LEVELS).includes(difficulty)) {
     query.difficulty = difficulty;
   }
-  
+
   if (search) {
     query.questionText = { $regex: search, $options: 'i' };
   }
@@ -81,13 +81,13 @@ router.get('/categories', asyncHandler(async (req, res) => {
  */
 router.get('/random', authenticate, asyncHandler(async (req, res) => {
   const { count = 5, category, difficulty } = req.query;
-  
+
   const query = { isActive: true };
-  
+
   if (category) {
     query.category = category;
   }
-  
+
   if (difficulty && Object.values(DIFFICULTY_LEVELS).includes(difficulty)) {
     query.difficulty = difficulty;
   }
@@ -128,7 +128,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
  * @desc    Add a new question
  * @access  Private (should be Admin only in production)
  */
-router.post('/add', authenticate, addQuestionValidation, asyncHandler(async (req, res) => {
+router.post('/add', authenticate, authorize('admin'), addQuestionValidation, asyncHandler(async (req, res) => {
   const { questionText, category, difficulty, expectedAnswer, keywords, timeLimit } = req.body;
 
   const question = new Question({
@@ -156,7 +156,7 @@ router.post('/add', authenticate, addQuestionValidation, asyncHandler(async (req
  * @desc    Update a question
  * @access  Private (Admin only)
  */
-router.put('/:id', authenticate, asyncHandler(async (req, res) => {
+router.put('/:id', authenticate, authorize('admin'), asyncHandler(async (req, res) => {
   const { questionText, category, difficulty, expectedAnswer, keywords, timeLimit, isActive } = req.body;
 
   const question = await Question.findById(req.params.id);
@@ -190,7 +190,7 @@ router.put('/:id', authenticate, asyncHandler(async (req, res) => {
  * @desc    Soft delete a question (set isActive to false)
  * @access  Private (Admin only)
  */
-router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
+router.delete('/:id', authenticate, authorize('admin'), asyncHandler(async (req, res) => {
   const question = await Question.findById(req.params.id);
 
   if (!question) {
@@ -206,6 +206,72 @@ router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
   res.status(HTTP_STATUS.OK).json({
     success: true,
     message: 'Question deleted successfully'
+  });
+}));
+
+// =====================================================================
+// PHASE 5: AI QUESTION GENERATION (Architecture Doc Section 4.4)
+// =====================================================================
+
+/**
+ * @route   POST /api/questions/generate
+ * @desc    Generate interview questions using AI
+ * @access  Private
+ * 
+ * PHASE 5: When the AI microservice is ready:
+ * 1. Set AI_SERVICE_URL and AI_SERVICE_API_KEY in .env
+ * 2. Uncomment the aiServiceClient import and call below
+ * 3. Remove the placeholder response
+ */
+router.post('/generate', authenticate, asyncHandler(async (req, res) => {
+  const { jobTitle, skills, difficulty, count } = req.body;
+
+  if (!jobTitle) {
+    throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'jobTitle is required for AI question generation');
+  }
+
+  // -----------------------------------------------------------------
+  // PHASE 5: Replace this block with actual AI service call
+  // -----------------------------------------------------------------
+  // const aiServiceClient = require('../services/aiServiceClient');
+  // const aiResponse = await aiServiceClient.generateQuestions({
+  //   jobTitle,
+  //   skills: skills || [],
+  //   difficulty: difficulty || 'medium',
+  //   count: count || 5,
+  // });
+  //
+  // // Save generated questions to DB
+  // const savedQuestions = [];
+  // for (const q of aiResponse.questions) {
+  //   const question = await Question.create({
+  //     questionText: q.text,
+  //     category: q.category || 'AI Generated',
+  //     difficulty: difficulty || 'medium',
+  //     skills: skills || [],
+  //     isAIGenerated: true,
+  //     expectedAnswer: q.expectedAnswer,
+  //     keywords: q.keywords || [],
+  //   });
+  //   savedQuestions.push(question);
+  // }
+  //
+  // return res.status(HTTP_STATUS.CREATED).json({
+  //   success: true,
+  //   message: `Generated ${savedQuestions.length} questions`,
+  //   data: savedQuestions,
+  // });
+  // -----------------------------------------------------------------
+
+  // Placeholder response until Phase 5 is active
+  res.status(HTTP_STATUS.OK).json({
+    success: true,
+    message: 'AI question generation is not yet active (Phase 5). Questions from the question bank are available.',
+    data: {
+      phase5Required: true,
+      instructions: 'Set AI_SERVICE_URL and AI_SERVICE_API_KEY in .env to enable AI question generation.',
+      requestedParams: { jobTitle, skills, difficulty, count: count || 5 },
+    }
   });
 }));
 

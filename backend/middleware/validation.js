@@ -12,7 +12,7 @@ const mongoose = require('mongoose');
  */
 const validate = (req, res, next) => {
   const errors = validationResult(req);
-  
+
   if (!errors.isEmpty()) {
     return res.status(HTTP_STATUS.BAD_REQUEST).json({
       success: false,
@@ -23,7 +23,7 @@ const validate = (req, res, next) => {
       }))
     });
   }
-  
+
   next();
 };
 
@@ -45,18 +45,18 @@ const registerValidation = [
     .notEmpty().withMessage('Name is required')
     .isLength({ min: VALIDATION.NAME_MIN_LENGTH, max: VALIDATION.NAME_MAX_LENGTH })
     .withMessage(`Name must be between ${VALIDATION.NAME_MIN_LENGTH} and ${VALIDATION.NAME_MAX_LENGTH} characters`),
-  
+
   body('email')
     .trim()
     .notEmpty().withMessage('Email is required')
     .isEmail().withMessage('Please provide a valid email')
     .normalizeEmail(),
-  
+
   body('password')
     .notEmpty().withMessage('Password is required')
     .isLength({ min: VALIDATION.PASSWORD_MIN_LENGTH })
     .withMessage(`Password must be at least ${VALIDATION.PASSWORD_MIN_LENGTH} characters`),
-  
+
   validate
 ];
 
@@ -66,10 +66,10 @@ const loginValidation = [
     .notEmpty().withMessage('Email is required')
     .isEmail().withMessage('Please provide a valid email')
     .normalizeEmail(),
-  
+
   body('password')
     .notEmpty().withMessage('Password is required'),
-  
+
   validate
 ];
 
@@ -80,14 +80,14 @@ const startInterviewValidation = [
     .optional()
     .trim()
     .isString().withMessage('Session type must be a string'),
-  
+
   validate
 ];
 
 const userIdParamValidation = [
   param('userId')
     .custom(isValidObjectId),
-  
+
   validate
 ];
 
@@ -98,34 +98,35 @@ const addQuestionValidation = [
     .trim()
     .notEmpty().withMessage('Question text is required')
     .isLength({ min: 10 }).withMessage('Question must be at least 10 characters'),
-  
+
   body('category')
     .trim()
     .notEmpty().withMessage('Category is required'),
-  
+
   body('difficulty')
     .optional()
     .isIn(Object.values(DIFFICULTY_LEVELS))
     .withMessage(`Difficulty must be one of: ${Object.values(DIFFICULTY_LEVELS).join(', ')}`),
-  
+
   validate
 ];
 
 // ============ ANSWER VALIDATION RULES ============
+// NOTE: Field names must match the Answer model (camelCase)
 
 const submitAnswerValidation = [
-  body('question_id')
+  body('questionId')
     .notEmpty().withMessage('Question ID is required')
     .custom(isValidObjectId),
-  
-  body('session_id')
-    .notEmpty().withMessage('Session ID is required')
+
+  body('interviewId')
+    .notEmpty().withMessage('Interview session ID is required')
     .custom(isValidObjectId),
-  
-  body('answer_text')
+
+  body('answerText')
     .trim()
     .notEmpty().withMessage('Answer text is required'),
-  
+
   validate
 ];
 

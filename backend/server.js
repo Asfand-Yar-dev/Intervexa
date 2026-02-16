@@ -9,6 +9,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const mongoSanitize = require('express-mongo-sanitize');
+const compression = require('compression');
 const { connectDB, closeDB } = require('./config/db');
 const logger = require('./config/logger');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
@@ -16,6 +18,10 @@ const { HTTP_STATUS } = require('./config/constants');
 
 // Initialize Express app
 const app = express();
+
+// PRODUCTION: Trust first proxy (nginx, AWS ELB, etc.)
+// Required for correct req.ip and rate limiting behind reverse proxy
+app.set('trust proxy', 1);
 
 // ============ SECURITY MIDDLEWARE ============
 
@@ -49,6 +55,29 @@ app.use('/api', limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// SECURITY: Prevent NoSQL injection attacks
+// Sanitizes req.body, req.query, req.params from $ and . operators
+app.use(mongoSanitize());
+
+// PERFORMANCE: Gzip compress responses
+app.use(compression());
+
+// SECURITY: Stricter rate limiter for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: parseInt(process.env.AUTH_RATE_LIMIT_MAX_REQUESTS) || 10, // 10 attempts per 15 min
+  message: {
+    success: false,
+    message: 'Too many authentication attempts. Please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use('/api/users/login', authLimiter);
+app.use('/api/users/register', authLimiter);
+app.use('/api/users/forgot-password', authLimiter);
+app.use('/api/users/reset-password', authLimiter);
+
 // ============ REQUEST LOGGING ============
 
 app.use((req, res, next) => {
@@ -73,14 +102,27 @@ app.get('/', (req, res) => {
 
 /**
  * @route   GET /health
- * @desc    Health check endpoint for load balancers
+ * @desc    Health check endpoint for load balancers and monitoring
+ * 
+ * PHASE 6: Enhanced with DB status, memory usage, and service checks
  */
 app.get('/health', (req, res) => {
+  const mongoose = require('mongoose');
+  const dbState = mongoose.connection.readyState; // 0=disconnected, 1=connected, 2=connecting, 3=disconnecting
+
   res.status(HTTP_STATUS.OK).json({
     success: true,
-    status: 'healthy',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString()
+    status: dbState === 1 ? 'healthy' : 'degraded',
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+    database: dbState === 1 ? 'connected' : 'disconnected',
+    memory: {
+      rss: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB',
+      heap: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
+    },
+    // PHASE 6: Add Redis and AI service status checks
+    // redis: app.get('redis')?.status === 'ready' ? 'connected' : 'disconnected',
+    // aiService: process.env.USE_REAL_AI === 'true' ? 'enabled' : 'placeholder',
   });
 });
 
@@ -90,6 +132,74 @@ app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/interviews', require('./routes/interviewRoutes'));
 app.use('/api/questions', require('./routes/questionRoutes'));
 app.use('/api/answers', require('./routes/answerRoutes'));
+app.use('/api/results', require('./routes/resultRoutes'));
+
+// =====================================================================
+// PHASE 6: API DOCUMENTATION (Swagger/OpenAPI)
+// =====================================================================
+// Install: npm install swagger-ui-express swagger-jsdoc
+//
+// const swaggerUi = require('swagger-ui-express');
+// const swaggerJsdoc = require('swagger-jsdoc');
+// const swaggerSpec = swaggerJsdoc({
+//   definition: {
+//     openapi: '3.0.0',
+//     info: { title: 'AI Interview System API', version: '1.0.0' },
+//     servers: [{ url: `/api` }],
+//     components: {
+//       securitySchemes: {
+//         bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }
+//       }
+//     }
+//   },
+//   apis: ['./routes/*.js'],
+// });
+// app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// =====================================================================
+
+// =====================================================================
+// PHASE 6: ERROR TRACKING (Sentry)
+// =====================================================================
+// Install: npm install @sentry/node
+//
+// const Sentry = require('@sentry/node');
+// if (process.env.SENTRY_DSN) {
+//   Sentry.init({
+//     dsn: process.env.SENTRY_DSN,
+//     environment: process.env.NODE_ENV || 'development',
+//     tracesSampleRate: 0.1,
+//   });
+//   app.use(Sentry.Handlers.requestHandler());
+//   // IMPORTANT: Sentry error handler must be BEFORE your custom error handler
+//   // Move this BEFORE errorHandler: app.use(Sentry.Handlers.errorHandler());
+// }
+// =====================================================================
+
+// =====================================================================
+// PHASE 6: REDIS CACHING
+// =====================================================================
+// Install: npm install ioredis
+//
+// const Redis = require('ioredis');
+// const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+// redis.on('connect', () => logger.info('Redis connected'));
+// redis.on('error', (err) => logger.error('Redis error:', err.message));
+// app.set('redis', redis); // Access via req.app.get('redis') in routes
+// =====================================================================
+
+// =====================================================================
+// PHASE 6: CSRF PROTECTION (for cookie-based auth flows)
+// =====================================================================
+// Install: npm install csrf-csrf
+// Only needed if you switch from Bearer token to cookie-based auth
+//
+// const { doubleCsrf } = require('csrf-csrf');
+// const { doubleCsrfProtection } = doubleCsrf({
+//   getSecret: () => process.env.CSRF_SECRET,
+//   cookieName: '__csrf',
+// });
+// app.use(doubleCsrfProtection);
+// =====================================================================
 
 // ============ ERROR HANDLING ============
 
@@ -135,7 +245,7 @@ const startServer = async () => {
       setTimeout(() => {
         logger.error('Forced shutdown due to timeout.');
         process.exit(1);
-      }, 30000);
+      }, 30000).unref(); // .unref() prevents this timer from keeping the process alive
     };
 
     // Handle shutdown signals
