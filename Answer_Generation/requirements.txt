@@ -4,6 +4,10 @@
 # Core AI/ML Libraries
 google-generativeai>=0.3.0
 
+# Voice Input Support
+SpeechRecognition>=3.10.0
+PyAudio>=0.2.13
+
 # Optional: Environment variable management
 python-dotenv>=1.0.0
 

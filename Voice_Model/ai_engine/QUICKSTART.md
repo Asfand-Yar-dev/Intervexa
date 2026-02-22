@@ -1,270 +1,177 @@
-# Vocal Tone Analysis Module - Quick Start Guide
+# Vocal Characteristics Analysis – Quick Start
 
-## 🎯 Overview
+## What This Module Does
 
-This module analyzes vocal tone and detects emotions from audio files using the state-of-the-art Wav2Vec2 model from Hugging Face.
+Analyses **how** a person speaks, NOT what emotion they feel.  
+It produces dimensional scores (0-100) for:
 
-**Model Used:** `superb/wav2vec2-base-superb-er`
+| Dimension | What it measures |
+|-----------|-----------------|
+| **Clarity** | Articulation, voiced ratio, signal quality |
+| **Confidence** | Volume stability, steady pitch, appropriate pace, few pauses |
+| **Tone** | Pitch expressiveness, energy, warmth, monotone detection |
+| **Hesitation** | Pause count & duration, pauses per minute |
+| **Stress** | Jitter, shimmer, elevated pitch, Wav2Vec2 instability |
+
+It also returns an **overall score** (composite) and a list of
+human-readable **feedback** bullets.
 
 ---
 
-## 📦 Installation
-
-### Step 1: Navigate to the ai_engine directory
+## 1. Install Dependencies
 
 ```bash
-cd "c:\Users\PMLS\OneDrive - BUITEMS\BUITEMS\University\FYP\AI Modules\Voice_Model\ai_engine"
+cd Voice_Model
+pip install -r ai_engine/requirements.txt
 ```
 
-### Step 2: Install dependencies
+> On the first run the Wav2Vec2 base model (~360 MB) will be downloaded
+> and cached under `ai_engine/models/wav2vec2-base/`. Every subsequent
+> run loads from this local directory – **no internet required**.
+
+---
+
+## 2. Run the GUI
 
 ```bash
-pip install -r requirements.txt
+python vocal_tone_gui.py
 ```
 
-**Note:** The installation will download several packages (~1-2 GB). Ensure you have:
-- Stable internet connection
-- Sufficient disk space
-- Python 3.8 or higher
+Or double-click **run_gui.bat**.
 
 ---
 
-## 🚀 Quick Test
-
-### Run the test script
+## 3. Run as Flask API
 
 ```bash
-python vocal_analysis.py
+python flask_app.py
 ```
 
-**What happens:**
-1. The model will be downloaded on first run (~380MB)
-2. The analyzer will initialize
-3. Test output will be displayed
+The server starts on **http://127.0.0.1:5001**.
 
-**Expected Output:**
+### Endpoints
 
-```
-======================================================================
-VOCAL TONE ANALYSIS MODULE - TEST
-======================================================================
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/api/voice/health` | Health / model status |
+| `POST` | `/api/voice/analyze` | Full analysis (Wav2Vec2 + signal) |
+| `POST` | `/api/voice/analyze-quick` | Quick analysis (signal-only, faster) |
 
-[1] Initializing Vocal Tone Analyzer...
-✓ Analyzer initialized successfully!
-
-[2] Testing with audio file...
-    Audio path: ../uploads/test_audio.wav
-
-⚠ WARNING: Test audio file not found!
-   Please create/place an audio file at: ../uploads/test_audio.wav
-   Or modify the 'test_audio_path' variable in the code.
-
-======================================================================
-EXAMPLE OUTPUT (with actual audio file):
-======================================================================
-{'emotion': 'Neutral', 'score': 92.5}
-```
-
----
-
-## 💻 Usage in Your Code
-
-### Basic Usage
-
-```python
-from ai_engine.vocal_analysis import VocalToneAnalyzer
-
-# Initialize once
-analyzer = VocalToneAnalyzer()
-
-# Analyze an audio file
-result = analyzer.analyze_tone("path/to/your/audio.wav")
-
-print(result)
-# Output: {'emotion': 'Neutral', 'score': 92.5}
-```
-
-### Advanced Usage (Multiple Predictions)
-
-```python
-# Get top 3 emotions with confidence scores
-detailed = analyzer.analyze_tone_detailed("audio.wav", top_n=3)
-
-print(detailed)
-# Output:
-# {
-#     'emotion': 'Neutral',
-#     'score': 92.5,
-#     'all_predictions': [
-#         {'emotion': 'Neutral', 'score': 92.5},
-#         {'emotion': 'Happy/Confident', 'score': 5.2},
-#         {'emotion': 'Sad', 'score': 2.3}
-#     ]
-# }
-```
-
----
-
-## 🧪 Testing with Your Own Audio
-
-### Step 1: Prepare an audio file
-- Format: WAV or MP3
-- Duration: At least 1-2 seconds
-- Quality: Clear speech, minimal background noise
-
-### Step 2: Update the test path
-
-Edit `vocal_analysis.py` at line ~245:
-
-```python
-# Change this line
-test_audio_path = "../uploads/test_audio.wav"
-
-# To your actual file path
-test_audio_path = "C:/path/to/your/audio.wav"
-```
-
-### Step 3: Run the test
+### Example: Upload a file
 
 ```bash
-python vocal_analysis.py
+curl -X POST http://127.0.0.1:5001/api/voice/analyze \
+     -F "audio=@recording.wav"
+```
+
+### Example: Pass a file path (JSON)
+
+```bash
+curl -X POST http://127.0.0.1:5001/api/voice/analyze \
+     -H "Content-Type: application/json" \
+     -d '{"audio_path": "recordings/recording.wav"}'
+```
+
+### Example Response
+
+```json
+{
+  "clarity_confidence": {
+    "clarity_score": 72.3,
+    "confidence_score": 68.5,
+    "details": {
+      "voiced_ratio": 85.2,
+      "volume_stability": 70.1,
+      "articulation": 65.4,
+      "speech_rate_syl_per_sec": 4.12
+    }
+  },
+  "tone": {
+    "tone_score": 61.8,
+    "details": {
+      "pitch_expressiveness": 45.2,
+      "energy_level": 58.3,
+      "warmth": 72.1,
+      "monotone_level": 54.8,
+      "pitch_mean_hz": 178.4,
+      "pitch_range_hz": 92.6
+    }
+  },
+  "hesitation_stress": {
+    "hesitation_score": 28.4,
+    "stress_score": 35.1,
+    "details": {
+      "pause_count": 3,
+      "total_pause_duration_s": 1.82,
+      "pauses_per_minute": 6.2,
+      "jitter": 0.0312,
+      "shimmer": 0.0845,
+      "tempo_bpm": 112.5
+    }
+  },
+  "overall_score": 67.9,
+  "feedback": [
+    "Your speech clarity is moderate. Try to enunciate words more distinctly.",
+    "Your confidence level is fair. Try to maintain a steady volume and pace.",
+    "Your tone is acceptable but could be more dynamic and energetic.",
+    "Minimal hesitation – your speech flows well.",
+    "Mild vocal stress indicators present. Stay relaxed and breathe regularly."
+  ],
+  "duration_s": 12.34,
+  "processing_time_s": 2.18
+}
 ```
 
 ---
 
-## 🔗 Integration Examples
-
-### Flask API
+## 4. Integrate Into Your Flask App
 
 ```python
-from flask import Flask, request, jsonify
+from flask import Flask
+from ai_engine.flask_routes import create_voice_blueprint
 from ai_engine.vocal_analysis import VocalToneAnalyzer
 
 app = Flask(__name__)
-analyzer = VocalToneAnalyzer()  # Initialize once at startup
 
-@app.route('/api/analyze-tone', methods=['POST'])
-def analyze_tone():
-    try:
-        audio_path = request.json['audio_path']
-        result = analyzer.analyze_tone(audio_path)
-        return jsonify(result), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == '__main__':
-    app.run(debug=True)
-```
-
-### FastAPI
-
-```python
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from ai_engine.vocal_analysis import VocalToneAnalyzer
-
-app = FastAPI()
+# Pre-load the model at startup
 analyzer = VocalToneAnalyzer()
 
-class AudioRequest(BaseModel):
-    audio_path: str
-
-@app.post("/api/analyze-tone")
-async def analyze_tone(request: AudioRequest):
-    try:
-        result = analyzer.analyze_tone(request.audio_path)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# Register the blueprint
+voice_bp = create_voice_blueprint(analyzer=analyzer)
+app.register_blueprint(voice_bp, url_prefix="/api/voice")
 ```
 
 ---
 
-## 🎨 Detected Emotions
+## 5. Use Directly in Python
 
-The module can detect the following emotions:
+```python
+from ai_engine.vocal_analysis import VocalToneAnalyzer
 
-| Abbreviation | Full Name          | Description                    |
-|--------------|--------------------|--------------------------------|
-| `neu`        | Neutral            | Calm, professional tone        |
-| `hap`        | Happy/Confident    | Positive, energetic tone       |
-| `ang`        | Angry              | Frustrated, aggressive tone    |
-| `sad`        | Sad                | Depressed, low-energy tone     |
-| `fea`        | Fearful/Nervous    | Anxious, uncertain tone        |
-| `dis`        | Disgust            | Repulsed, negative tone        |
-| `sur`        | Surprised          | Shocked, unexpected tone       |
+analyzer = VocalToneAnalyzer()
 
----
+# Full analysis (Wav2Vec2 + signal)
+result = analyzer.analyze_tone("path/to/audio.wav")
 
-## ⚡ Performance Tips
-
-1. **Initialize Once:** Load the model only once when your application starts
-2. **Batch Processing:** Process multiple files sequentially to avoid memory issues
-3. **Audio Length:** Shorter audio files (5-10 seconds) process faster
-4. **File Format:** WAV files are processed faster than MP3
+# Quick analysis (signal-only – no Wav2Vec2, faster)
+result_quick = analyzer.analyze_tone_quick("path/to/audio.wav")
+```
 
 ---
 
-## 🐛 Troubleshooting
+## Project Structure
 
-### Issue: Model download fails
-
-**Solution:**
-- Check internet connection
-- Verify firewall settings
-- Use a VPN if Hugging Face is blocked
-
-### Issue: "Audio file not found" error
-
-**Solution:**
-- Verify the file path is correct
-- Use absolute paths instead of relative paths
-- Check file permissions
-
-### Issue: Low confidence scores
-
-**Solution:**
-- Ensure clear audio quality
-- Remove background noise
-- Use audio with clear speech
-- Minimum 1-2 seconds of audio required
-
-### Issue: Memory error
-
-**Solution:**
-- Close other applications
-- Process files one at a time
-- Use a machine with at least 4GB RAM
-
----
-
-## 📊 Expected Performance
-
-- **Model Loading Time:** 5-15 seconds (one-time)
-- **Analysis Speed:** 1-3 seconds per audio file
-- **Memory Usage:** ~500MB RAM
-- **Model Download:** ~380MB (one-time)
-
----
-
-## 📝 Notes
-
-- The model is downloaded from Hugging Face on first use
-- Predictions are stored in memory during analysis
-- No data is sent to external servers after model download
-- The module is thread-safe for concurrent requests
-
----
-
-## 🆘 Support
-
-For issues or questions:
-1. Check the main README.md for detailed documentation
-2. Review error logs in the console
-3. Verify all dependencies are installed correctly
-
----
-
-**Created:** 2026-02-06  
-**Version:** 1.0.0  
-**Author:** AI Backend Development Team
+```
+Voice_Model/
+├── ai_engine/
+│   ├── __init__.py
+│   ├── vocal_analysis.py      # Core analysis engine
+│   ├── flask_routes.py        # Flask blueprint (API routes)
+│   ├── requirements.txt
+│   └── models/
+│       └── wav2vec2-base/      # Auto-cached on first run
+├── flask_app.py               # Standalone Flask server
+├── vocal_tone_gui.py          # Tkinter GUI for testing
+├── run_gui.bat
+└── recordings/                # Saved recordings
+```

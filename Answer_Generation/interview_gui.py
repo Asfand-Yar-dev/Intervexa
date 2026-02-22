@@ -3,15 +3,23 @@ Smart Mock Interview System - GUI Application
 ==============================================
 
 A professional interview application with technical and soft skills questions.
+Includes voice input support for hands-free answering.
 
 Author: Smart Mock Interview System
-Version: 1.0
+Version: 1.1
 """
 
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 import threading
+
+# Voice input support
+try:
+    import speech_recognition as sr
+    VOICE_AVAILABLE = True
+except ImportError:
+    VOICE_AVAILABLE = False
 
 # Set API key
 os.environ["GEMINI_API_KEY"] = "AIzaSyAD45O_-YdhcnMG2ubLyk4lHnSr_ond5uo"
@@ -33,6 +41,10 @@ class InterviewGUI:
         self.all_questions = []
         self.current_question_index = 0
         self.user_answers = []
+        
+        # Voice input state
+        self.is_recording = False
+        self.recognizer = sr.Recognizer() if VOICE_AVAILABLE else None
         
         # Create UI
         self.create_widgets()
@@ -353,15 +365,54 @@ class InterviewGUI:
         )
         question_label.pack(fill=tk.X, pady=(0, 20))
         
-        # Answer Input
+        # Answer Input Header with Voice Button
+        answer_header_frame = tk.Frame(question_frame, bg="white")
+        answer_header_frame.pack(fill=tk.X, pady=(10, 5))
+        
         tk.Label(
-            question_frame,
+            answer_header_frame,
             text="Your Answer:",
             font=("Arial", 11, "bold"),
             bg="white",
             fg="#7f8c8d",
             anchor="w"
-        ).pack(fill=tk.X, pady=(10, 5))
+        ).pack(side=tk.LEFT)
+        
+        # Voice status label
+        self.voice_status_label = tk.Label(
+            answer_header_frame,
+            text="",
+            font=("Arial", 10),
+            bg="white",
+            fg="#e74c3c"
+        )
+        self.voice_status_label.pack(side=tk.RIGHT, padx=(0, 10))
+        
+        # Microphone button
+        if VOICE_AVAILABLE:
+            self.mic_btn = tk.Button(
+                answer_header_frame,
+                text="🎤 Speak",
+                font=("Arial", 10, "bold"),
+                bg="#8e44ad",
+                fg="white",
+                activebackground="#7d3c98",
+                activeforeground="white",
+                cursor="hand2",
+                relief=tk.FLAT,
+                padx=12,
+                pady=3,
+                command=self.toggle_voice_input
+            )
+            self.mic_btn.pack(side=tk.RIGHT, padx=5)
+        else:
+            tk.Label(
+                answer_header_frame,
+                text="(Install 'SpeechRecognition' & 'PyAudio' for voice input)",
+                font=("Arial", 9),
+                bg="white",
+                fg="#bdc3c7"
+            ).pack(side=tk.RIGHT)
         
         self.answer_text = scrolledtext.ScrolledText(
             question_frame,
@@ -445,6 +496,96 @@ class InterviewGUI:
                 command=self.finish_interview
             )
             finish_btn.pack(side=tk.RIGHT, padx=5)
+    
+    # ========== VOICE INPUT METHODS ==========
+    
+    def toggle_voice_input(self):
+        """Toggle voice recording on/off."""
+        if not VOICE_AVAILABLE:
+            messagebox.showwarning(
+                "Voice Unavailable",
+                "Voice input requires 'SpeechRecognition' and 'PyAudio'.\n\n"
+                "Install them with:\n"
+                "  pip install SpeechRecognition PyAudio"
+            )
+            return
+        
+        if self.is_recording:
+            # Stop recording (handled by the thread timeout)
+            self.is_recording = False
+            self.mic_btn.config(text="🎤 Speak", bg="#8e44ad")
+            self.voice_status_label.config(text="")
+        else:
+            # Start recording
+            self.is_recording = True
+            self.mic_btn.config(text="⏹ Stop", bg="#e74c3c")
+            self.voice_status_label.config(text="🔴 Listening...", fg="#e74c3c")
+            
+            # Run recognition in background thread
+            thread = threading.Thread(target=self._record_and_transcribe, daemon=True)
+            thread.start()
+    
+    def _record_and_transcribe(self):
+        """Record audio from microphone and transcribe to text."""
+        try:
+            with sr.Microphone() as source:
+                # Adjust for ambient noise briefly
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                
+                self.root.after(0, lambda: self.voice_status_label.config(
+                    text="🔴 Listening... (speak now)", fg="#e74c3c"
+                ))
+                
+                # Listen with a timeout
+                audio = self.recognizer.listen(source, timeout=10, phrase_time_limit=30)
+            
+            # Update status
+            self.root.after(0, lambda: self.voice_status_label.config(
+                text="⏳ Transcribing...", fg="#f39c12"
+            ))
+            
+            # Recognize speech using Google's free API
+            text = self.recognizer.recognize_google(audio)
+            
+            # Append transcribed text to the answer area
+            self.root.after(0, lambda: self._append_voice_text(text))
+            
+        except sr.WaitTimeoutError:
+            self.root.after(0, lambda: self.voice_status_label.config(
+                text="⚠️ No speech detected. Try again.", fg="#e67e22"
+            ))
+        except sr.UnknownValueError:
+            self.root.after(0, lambda: self.voice_status_label.config(
+                text="⚠️ Could not understand. Try again.", fg="#e67e22"
+            ))
+        except sr.RequestError as e:
+            self.root.after(0, lambda: self.voice_status_label.config(
+                text="❌ Speech service error", fg="#e74c3c"
+            ))
+        except OSError:
+            self.root.after(0, lambda: messagebox.showerror(
+                "Microphone Error",
+                "No microphone found!\n\n"
+                "Please connect a microphone and try again.\n"
+                "Also make sure 'PyAudio' is installed:\n"
+                "  pip install PyAudio"
+            ))
+        finally:
+            self.is_recording = False
+            self.root.after(0, lambda: self.mic_btn.config(text="🎤 Speak", bg="#8e44ad"))
+            # Clear status after 3 seconds
+            self.root.after(3000, lambda: self.voice_status_label.config(text=""))
+    
+    def _append_voice_text(self, text):
+        """Append transcribed voice text to the answer text area."""
+        current_text = self.answer_text.get(1.0, tk.END).strip()
+        if current_text:
+            # Add a space separator if there's existing text
+            self.answer_text.insert(tk.END, " " + text)
+        else:
+            self.answer_text.insert(1.0, text)
+        
+        self.voice_status_label.config(text="✅ Voice text added!", fg="#27ae60")
     
     def save_answer(self):
         """Save the current answer."""

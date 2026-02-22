@@ -104,6 +104,9 @@ class STTTesterApp:
         # File Input Section
         self._create_file_input_section(content_frame)
         
+        # Language Selection Section
+        self._create_language_section(content_frame)
+        
         # Progress Section
         self._create_progress_section(content_frame)
         
@@ -162,6 +165,57 @@ class STTTesterApp:
                 self.path_entry.dnd_bind('<<Drop>>', self._on_file_drop)
             except Exception as e:
                 pass  # Silently fail if drag-and-drop setup fails
+    
+    def _create_language_section(self, parent):
+        """Create language selection section."""
+        lang_frame = tk.LabelFrame(
+            parent, 
+            text="🌍 Language Selection (English & Urdu Only)", 
+            font=("Arial", 10, "bold"), 
+            bg="#ECF0F1"
+        )
+        lang_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        lang_inner = tk.Frame(lang_frame, bg="#ECF0F1")
+        lang_inner.pack(fill=tk.X, padx=10, pady=10)
+        
+        tk.Label(
+            lang_inner,
+            text="Select Language:",
+            font=("Arial", 10),
+            bg="#ECF0F1"
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.language_var = tk.StringVar(value="auto")
+        self.language_options = {
+            "Auto-Detect (English/Urdu)": "auto",
+            "English": "en",
+            "اردو (Urdu)": "ur"
+        }
+        
+        self.language_combo = ttk.Combobox(
+            lang_inner,
+            values=list(self.language_options.keys()),
+            state="readonly",
+            font=("Arial", 10),
+            width=30
+        )
+        self.language_combo.set("Auto-Detect (English/Urdu)")
+        self.language_combo.pack(side=tk.LEFT)
+        
+        tk.Label(
+            lang_inner,
+            text="  ℹ️ Only English and Urdu are supported",
+            font=("Arial", 8, "italic"),
+            bg="#ECF0F1",
+            fg="#7F8C8D"
+        ).pack(side=tk.LEFT, padx=(10, 0))
+    
+    def _get_selected_language(self) -> Optional[str]:
+        """Get the selected language code, or None for auto-detect."""
+        selected_text = self.language_combo.get()
+        lang_code = self.language_options.get(selected_text, "auto")
+        return None if lang_code == "auto" else lang_code
     
     def _create_progress_section(self, parent):
         """Create progress tracking section."""
@@ -406,9 +460,13 @@ class STTTesterApp:
                     raise InterruptedError("Cancelled by user")
                 self.root.after(0, lambda: self._update_progress(percent))
             
+            # Get selected language (English/Urdu only)
+            selected_language = self._get_selected_language()
+            
             # Run transcription
             result = self.engine.transcribe_audio(
                 audio_path,
+                language=selected_language,
                 progress_callback=update_progress
             )
             
@@ -446,9 +504,10 @@ class STTTesterApp:
             self.last_transcript = result['text']
             self.copy_btn.config(state=tk.NORMAL)
             
-            # Detect if language is RTL (right-to-left)
+            # Detect if language is RTL (Urdu is RTL, English is LTR)
             language = result['language'].lower()
-            is_rtl = self._is_rtl_language(language)
+            language_name = result.get('language_name', language.upper())
+            is_rtl = language in ('ur', 'urdu')
             
             # Insert header
             self.result_area.insert(tk.END, "✓ TRANSCRIPTION SUCCESSFUL\n", "header")
@@ -461,26 +520,26 @@ class STTTesterApp:
             # Insert the actual transcript with proper formatting
             transcript_text = result['text'].strip() + "\n\n"
             if is_rtl:
-                # For RTL languages (Urdu, Arabic, etc.)
+                # For Urdu (RTL)
                 self.result_area.insert(tk.END, transcript_text, "transcript_rtl")
             else:
-                # For LTR languages (English, etc.)
+                # For English (LTR)
                 self.result_area.insert(tk.END, transcript_text, "transcript_ltr")
             
             self.result_area.insert(tk.END, "-" * 60 + "\n\n", "metadata")
             
             # Insert metadata
             metadata = (
-                f"🌍 Language: {result['language'].upper()}\n"
+                f"🌍 Language: {language_name} ({result['language'].upper()})\n"
                 f"💻 Device: {result['device_used'].upper()}\n"
                 f"📊 File Size: {result.get('duration', 0):.2f} MB\n"
                 f"⏱️ Segments: {len(result.get('segments', []))}\n"
             )
             self.result_area.insert(tk.END, metadata, "metadata")
             
-            # Show RTL indicator if applicable
+            # Show language-specific indicator
             if is_rtl:
-                self.result_area.insert(tk.END, "\n✨ RTL text formatting applied\n", "metadata")
+                self.result_area.insert(tk.END, "\n✨ Urdu (RTL) text formatting applied\n", "metadata")
             
             self.progress_label.config(text="✓ Completed successfully")
         else:
@@ -529,18 +588,8 @@ class STTTesterApp:
     # ============= Helper Methods =============
     
     def _is_rtl_language(self, language_code: str) -> bool:
-        """Check if language is right-to-left."""
-        rtl_languages = {
-            'ur', 'urdu',           # Urdu
-            'ar', 'arabic',         # Arabic
-            'fa', 'persian', 'farsi',  # Persian/Farsi
-            'he', 'hebrew',         # Hebrew
-            'yi', 'yiddish',        # Yiddish
-            'ps', 'pashto',         # Pashto
-            'sd', 'sindhi',         # Sindhi
-            'ug', 'uyghur'          # Uyghur
-        }
-        return language_code.lower() in rtl_languages
+        """Check if language is right-to-left. Only Urdu is RTL among supported languages."""
+        return language_code.lower() in ('ur', 'urdu')
     
     def _copy_transcript(self):
         """Copy transcript to clipboard."""
