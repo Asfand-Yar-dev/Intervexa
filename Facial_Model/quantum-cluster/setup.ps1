@@ -48,8 +48,8 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host " Setup Complete! " -ForegroundColor Green
     Write-Host "=========================================" -ForegroundColor Green
     Write-Host ""
-    Write-Host "To test the system, run:" -ForegroundColor Cyan
-    Write-Host "  python tests/test_gui.py" -ForegroundColor White
+    Write-Host "To verify the module, run:" -ForegroundColor Cyan
+    Write-Host "  python -c `"from models.Facial_AI_Module import FacialExpressionModel; print('Module ready!')`"" -ForegroundColor White
     Write-Host ""
 } else {
     Write-Host "✗ Verification failed. Please check error messages above." -ForegroundColor Red

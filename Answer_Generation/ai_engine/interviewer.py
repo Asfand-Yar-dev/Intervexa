@@ -5,28 +5,32 @@ Interviewer Agent Module for Smart Mock Interview System
 This module uses Google's Gemini API to generate technical interview questions
 and provide feedback on candidate answers.
 
+Usage (Backend Integration):
+    from ai_engine.interviewer import InterviewConductor
+
+    conductor = InterviewConductor(api_key="your_key")
+    questions = conductor.generate_questions(
+        job_role="Python Developer",
+        tech_stack="Python, Django",
+        difficulty="Medium"
+    )
+    feedback = conductor.generate_feedback(question, user_answer)
+
 Dependencies:
     pip install google-generativeai
-
-How to Get a Gemini API Key:
-    1. Visit: https://makersuite.google.com/app/apikey
-    2. Sign in with your Google account
-    3. Click "Create API Key"
-    4. Copy the generated key
-    5. Set it as an environment variable:
-       - Windows (CMD): set GEMINI_API_KEY=your_api_key_here
-       - Windows (PowerShell): $env:GEMINI_API_KEY="your_api_key_here"
-       - Linux/Mac: export GEMINI_API_KEY=your_api_key_here
-    6. Or add it to a .env file and load it with python-dotenv
 
 Author: Smart Mock Interview System Team
 Version: 1.0
 """
 
+import logging
 import os
 import re
-import google.generativeai as genai
 from typing import List, Optional
+
+import google.generativeai as genai
+
+logger = logging.getLogger(__name__)
 
 
 class InterviewConductor:
@@ -64,7 +68,7 @@ class InterviewConductor:
         # Initialize the model (using gemini-2.5-flash which is the latest stable model)
         self.model = genai.GenerativeModel('gemini-2.5-flash')
         
-        print("[OK] InterviewConductor initialized successfully with Gemini API")
+        logger.info("InterviewConductor initialized successfully with Gemini API")
     
     def generate_questions(
         self, 
@@ -173,12 +177,12 @@ Now generate the questions:"""
             if len(cleaned_questions) > 5:
                 cleaned_questions = cleaned_questions[:5]
             elif len(cleaned_questions) < 5:
-                print(f"[WARNING] Only {len(cleaned_questions)} questions generated. Expected 5.")
+                logger.warning(f"Only {len(cleaned_questions)} questions generated. Expected 5.")
             
             return cleaned_questions
         
         except Exception as e:
-            print(f"[ERROR] Error generating questions: {str(e)}")
+            logger.error(f"Error generating questions: {str(e)}")
             # Return fallback questions in case of error
             return [
                 f"Describe your experience with {tech_stack.split(',')[0].strip()}.",
@@ -297,12 +301,12 @@ Now generate the soft skills questions:"""
             if len(cleaned_questions) > num_questions:
                 cleaned_questions = cleaned_questions[:num_questions]
             elif len(cleaned_questions) < num_questions:
-                print(f"[WARNING] Only {len(cleaned_questions)} soft skills questions generated. Expected {num_questions}.")
+                logger.warning(f"Only {len(cleaned_questions)} soft skills questions generated. Expected {num_questions}.")
             
             return cleaned_questions
         
         except Exception as e:
-            print(f"[ERROR] Error generating soft skills questions: {str(e)}")
+            logger.error(f"Error generating soft skills questions: {str(e)}")
             # Return fallback soft skills questions
             return [
                 f"Describe your experience working in a team environment as a {job_role}.",
@@ -377,7 +381,7 @@ Generate the feedback now:"""
             return feedback
         
         except Exception as e:
-            print(f"[ERROR] Error generating feedback: {str(e)}")
+            logger.error(f"Error generating feedback: {str(e)}")
             return (
                 f"Thank you for your answer. While I encountered a technical issue "
                 f"analyzing your response in detail, I encourage you to review the key "
@@ -386,136 +390,3 @@ Generate the feedback now:"""
             )
 
 
-# =============================================================================
-# TESTING MODULE
-# =============================================================================
-
-if __name__ == "__main__":
-    """
-    Test the InterviewConductor module with sample data.
-    """
-    print("=" * 70)
-    print("INTERVIEWER AGENT MODULE - TEST MODE")
-    print("=" * 70)
-    print()
-    
-    # Check if API key is available
-    api_key = os.getenv("GEMINI_API_KEY")
-    
-    if not api_key:
-        print("[WARNING] GEMINI_API_KEY environment variable not found.")
-        print("\nHow to set it up:")
-        print("  1. Get your key from: https://makersuite.google.com/app/apikey")
-        print("  2. Set environment variable:")
-        print("     - Windows CMD: set GEMINI_API_KEY=your_key_here")
-        print("     - PowerShell: $env:GEMINI_API_KEY=\"your_key_here\"")
-        print("     - Linux/Mac: export GEMINI_API_KEY=your_key_here")
-        print("\n" + "=" * 70)
-        
-        # For testing purposes, allow manual input
-        user_input = input("\nEnter your Gemini API key to continue testing (or press Enter to skip): ").strip()
-        if user_input:
-            api_key = user_input
-        else:
-            print("\n[ERROR] Cannot proceed without API key. Exiting...")
-            exit(1)
-    
-    print()
-    
-    # Initialize the conductor
-    try:
-        conductor = InterviewConductor(api_key=api_key)
-        print()
-        
-        # Test 1: Generate questions for Python Developer
-        print("-" * 70)
-        print("TEST 1: Generating Questions for Python Developer")
-        print("-" * 70)
-        
-        job_role = "Python Developer"
-        tech_stack = "Python, Django, PostgreSQL, Docker"
-        difficulty = "Medium"
-        
-        print(f"\n[Profile]")
-        print(f"   Role: {job_role}")
-        print(f"   Stack: {tech_stack}")
-        print(f"   Difficulty: {difficulty}")
-        print(f"\n[Generating questions...]\n")
-        
-        questions = conductor.generate_questions(
-            job_role=job_role,
-            tech_stack=tech_stack,
-            difficulty=difficulty
-        )
-        
-        print("[Generated Questions]\n")
-        for i, question in enumerate(questions, 1):
-            print(f"{i}. {question}")
-        
-        print()
-        
-        # Test 2: Generate feedback for a sample answer
-        print("-" * 70)
-        print("TEST 2: Generating Feedback for Sample Answer")
-        print("-" * 70)
-        
-        sample_question = questions[0] if questions else "Explain Python decorators."
-        sample_answer = (
-            "Decorators in Python are functions that modify the behavior of other functions. "
-            "You use the @ symbol before a function definition to apply a decorator. "
-            "They are useful for logging and authentication."
-        )
-        
-        print(f"\n[Question]:")
-        print(f"   {sample_question}")
-        print(f"\n[Sample Answer]:")
-        print(f"   {sample_answer}")
-        print(f"\n[Generating feedback...]\n")
-        
-        feedback = conductor.generate_feedback(
-            question=sample_question,
-            user_answer=sample_answer
-        )
-        
-        print("[Feedback]\n")
-        print(f"   {feedback}")
-        print()
-        
-        # Test 3: Different role
-        print("-" * 70)
-        print("TEST 3: Generating Questions for Full Stack Developer")
-        print("-" * 70)
-        
-        job_role_2 = "Full Stack Developer"
-        tech_stack_2 = "React, Node.js, Express, MongoDB"
-        difficulty_2 = "Hard"
-        
-        print(f"\n[Profile]:")
-        print(f"   Role: {job_role_2}")
-        print(f"   Stack: {tech_stack_2}")
-        print(f"   Difficulty: {difficulty_2}")
-        print(f"\n[Generating questions...]\n")
-        
-        questions_2 = conductor.generate_questions(
-            job_role=job_role_2,
-            tech_stack=tech_stack_2,
-            difficulty=difficulty_2
-        )
-        
-        print("[Generated Questions]\n")
-        for i, question in enumerate(questions_2, 1):
-            print(f"{i}. {question}")
-        
-        print()
-        print("=" * 70)
-        print("[SUCCESS] ALL TESTS COMPLETED SUCCESSFULLY!")
-        print("=" * 70)
-        
-    except ValueError as e:
-        print(f"\n[ERROR] Configuration Error: {e}")
-        exit(1)
-    except Exception as e:
-        print(f"\n[ERROR] Unexpected Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        exit(1)
