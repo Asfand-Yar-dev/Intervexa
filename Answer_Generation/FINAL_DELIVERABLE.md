@@ -128,20 +128,19 @@ feedback = conductor.generate_feedback(
 
 ## 📝 API Key Configuration
 
-**Your API Key:** `AIzaSyAD45O_-YdhcnMG2ubLyk4lHnSr_ond5uo`
+**API Key:** Stored securely in `.env` file (gitignored)
 
-**✅ Already configured in:**
-- `quick_test.py` (embedded)
-- `set_api_key.ps1` (helper script)
+**✅ Configured via:**
+- `.env` file in project root (loaded automatically by `load_dotenv()`)
 
 **To set manually in PowerShell:**
 ```powershell
-$env:GEMINI_API_KEY="AIzaSyAD45O_-YdhcnMG2ubLyk4lHnSr_ond5uo"
+$env:GEMINI_API_KEY="your_gemini_api_key_here"
 ```
 
-Or just run:
-```powershell
-.\set_api_key.ps1
+Or add your key to the `.env` file:
+```
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 ---

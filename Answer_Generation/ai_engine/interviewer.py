@@ -26,9 +26,16 @@ Version: 1.0
 import logging
 import os
 import re
+from pathlib import Path
 from typing import List, Optional
 
+from dotenv import load_dotenv
 import google.generativeai as genai
+
+# Load environment variables from .env file (project root)
+# This makes GEMINI_API_KEY available via os.getenv()
+env_path = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(dotenv_path=env_path)
 
 logger = logging.getLogger(__name__)
 
