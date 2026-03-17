@@ -152,11 +152,18 @@ async function apiRequest<T>(
     requireAuth = false,
   } = options;
 
+  // Determine if body is FormData
+  const isFormData = body instanceof FormData;
+
   // Build headers
   const requestHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...headers,
   };
+
+  // Only add Content-Type: application/json if not FormData
+  if (!isFormData) {
+    requestHeaders['Content-Type'] = 'application/json';
+  }
 
   // Add auth token if required or available
   const token = getToken();
@@ -174,7 +181,7 @@ async function apiRequest<T>(
   };
 
   if (body && method !== 'GET') {
-    config.body = JSON.stringify(body);
+    config.body = isFormData ? (body as FormData) : JSON.stringify(body);
   }
 
   const url = `${API_BASE_URL}${endpoint}`;
@@ -461,7 +468,8 @@ export const interviewApi = {
         confidence: number;
         clarity: number;
         technical: number;
-        communication: number;
+        bodyLanguage: number;
+        voiceTone: number;
       };
       questionFeedback: Array<{
         id: string;
@@ -568,17 +576,43 @@ export const answersApi = {
   async submit(data: {
     question_id: string;
     session_id: string;
-    answer_text: string;
-    audio_url?: string;
-    video_url?: string;
+    answer_text?: string;
+    audio_blob?: Blob;
+    video_blob?: Blob;
+    audio_duration?: number;
   }): Promise<{
     success: boolean;
     message: string;
     data: { answer: unknown };
   }> {
+    // If we have files, use FormData
+    if (data.audio_blob || data.video_blob) {
+      const formData = new FormData();
+      formData.append('questionId', data.question_id);
+      formData.append('audioDuration', (data.audio_duration || 0).toString());
+      if (data.answer_text) formData.append('answerText', data.answer_text);
+      
+      if (data.audio_blob) {
+        formData.append('audio', data.audio_blob, 'recording.webm');
+      }
+      
+      // Note: Backend currently handles 'audio' field via upload.single('audio')
+      // in /api/interviews/:sessionId/answers
+      return apiRequest(`/api/interviews/${data.session_id}/answers`, {
+        method: 'POST',
+        body: formData, // apiRequest will need to handle FormData
+        requireAuth: true,
+      });
+    }
+
+    // Default JSON submission
     return apiRequest(API_ENDPOINTS.ANSWERS.SUBMIT, {
       method: 'POST',
-      body: data,
+      body: {
+        questionId: data.question_id,
+        interviewId: data.session_id,
+        answerText: data.answer_text || '',
+      },
       requireAuth: true,
     });
   },

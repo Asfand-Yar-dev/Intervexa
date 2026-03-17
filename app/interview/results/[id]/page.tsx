@@ -45,8 +45,8 @@ export default function ResultsPage() {
             confidenceScore: response.data.scores.confidence,
             clarityScore: response.data.scores.clarity,
             technicalScore: response.data.scores.technical,
-            bodyLanguageScore: 75, // Placeholder until AI integration
-            voiceToneScore: 80,    // Placeholder until AI integration
+            bodyLanguageScore: response.data.scores.bodyLanguage,
+            voiceToneScore: response.data.scores.voiceTone,
             strengths: response.data.strengths,
             improvements: response.data.improvements,
             detailedFeedback: response.data.summary,

@@ -1,292 +1,294 @@
 /**
  * =============================================================================
- * AI SERVICE CLIENT
+ * AI SERVICE CLIENT — HTTP Client for Python AI Gateway
  * =============================================================================
- * 
- * HTTP client for communicating with the Python AI microservice (FastAPI/Flask).
- * 
- * FEATURES:
- * - Circuit breaker pattern (fails fast when AI is down)
- * - Exponential backoff retry logic
- * - Request timeout handling
- * - Structured error responses
- * 
- * USAGE:
- *   const aiClient = require('./services/aiServiceClient');
- *   
- *   // Analyze audio
- *   const result = await aiClient.analyzeAudio(filePath, options);
- *   
- *   // Transcribe audio
- *   const transcript = await aiClient.transcribeAudio(filePath);
- *   
- *   // Generate questions
- *   const questions = await aiClient.generateQuestions({ jobTitle, skills });
- * 
- * CONFIGURATION (.env):
- *   AI_SERVICE_URL=http://localhost:8000
- *   AI_SERVICE_API_KEY=your-api-key
- *   AI_SERVICE_TIMEOUT=30000
- *   AI_WEBHOOK_SECRET=your-webhook-secret
- * 
- * @version 1.0.0
+ *
+ * Provides a resilient HTTP client for communicating with the Python AI
+ * Gateway (Flask). Features:
+ *   - Circuit breaker pattern (auto-disables after consecutive failures)
+ *   - Exponential backoff on retries
+ *   - Configurable timeouts
+ *   - Health-check endpoint for monitoring
+ *
+ * The client communicates with ALL AI endpoints through a single gateway:
+ *   - Speech-to-Text (Whisper)
+ *   - NLP Analysis (Sentence-BERT)
+ *   - Vocal Analysis (Wav2Vec2)
+ *   - Facial Analysis (DeepFace)
+ *   - Question Generation (Gemini)
+ *   - Answer Feedback (Gemini)
+ *   - Comprehensive Analysis (All-in-One)
+ *   - Fusion Engine
+ *
+ * Configuration (via .env):
+ *   AI_SERVICE_URL        – Base URL of the Python AI Gateway  (default: http://localhost:8000)
+ *   AI_SERVICE_TIMEOUT    – Request timeout in ms               (default: 30000)
+ *   AI_SERVICE_MAX_RETRIES – Max retry attempts                 (default: 2)
+ *
+ * @version 2.0.0
  * =============================================================================
  */
 
 const logger = require('../config/logger');
-const fs = require('fs');
-const path = require('path');
 
-// =============================================================================
-// CONFIGURATION
-// =============================================================================
+const BASE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+const TIMEOUT = parseInt(process.env.AI_SERVICE_TIMEOUT || '30000', 10);
+const MAX_RETRIES = parseInt(process.env.AI_SERVICE_MAX_RETRIES || '2', 10);
 
-const CONFIG = {
-    baseUrl: process.env.AI_SERVICE_URL || 'http://localhost:8000',
-    apiKey: process.env.AI_SERVICE_API_KEY || '',
-    timeout: parseInt(process.env.AI_SERVICE_TIMEOUT) || 30000, // 30 seconds
-    maxRetries: parseInt(process.env.AI_SERVICE_MAX_RETRIES) || 3,
-
-    // Circuit breaker settings
-    circuitBreaker: {
-        failureThreshold: 5,      // Open circuit after 5 consecutive failures
-        recoveryTimeout: 60000,   // Try again after 60 seconds
-    },
+// -------------------------------------------------------------------------
+// Circuit Breaker State
+// -------------------------------------------------------------------------
+const circuitBreaker = {
+  failures: 0,
+  threshold: 5,          // Open circuit after 5 consecutive failures
+  resetTimeout: 60000,   // Reset after 60 seconds
+  state: 'CLOSED',       // CLOSED | OPEN | HALF_OPEN
+  lastFailure: null,
 };
 
-// =============================================================================
-// CIRCUIT BREAKER STATE
-// =============================================================================
-
-const circuitState = {
-    failures: 0,
-    lastFailure: null,
-    isOpen: false,
-};
-
-function checkCircuitBreaker() {
-    if (!circuitState.isOpen) return true;
-
-    // Check if recovery timeout has elapsed
-    const timeSinceFailure = Date.now() - circuitState.lastFailure;
-    if (timeSinceFailure > CONFIG.circuitBreaker.recoveryTimeout) {
-        logger.info('Circuit breaker: Half-open — attempting recovery');
-        circuitState.isOpen = false;
-        circuitState.failures = 0;
-        return true;
+function _checkCircuit() {
+  if (circuitBreaker.state === 'OPEN') {
+    const elapsed = Date.now() - circuitBreaker.lastFailure;
+    if (elapsed > circuitBreaker.resetTimeout) {
+      circuitBreaker.state = 'HALF_OPEN';
+      logger.info('AI Service circuit breaker → HALF_OPEN (testing)');
+    } else {
+      throw new Error('AI Service circuit breaker is OPEN — service unavailable');
     }
-
-    return false; // Circuit is still open
+  }
 }
 
-function recordFailure() {
-    circuitState.failures++;
-    circuitState.lastFailure = Date.now();
-
-    if (circuitState.failures >= CONFIG.circuitBreaker.failureThreshold) {
-        circuitState.isOpen = true;
-        logger.error(`Circuit breaker OPEN: AI service has failed ${circuitState.failures} times`);
-    }
+function _onSuccess() {
+  circuitBreaker.failures = 0;
+  if (circuitBreaker.state !== 'CLOSED') {
+    circuitBreaker.state = 'CLOSED';
+    logger.info('AI Service circuit breaker → CLOSED (recovered)');
+  }
 }
 
-function recordSuccess() {
-    circuitState.failures = 0;
-    circuitState.isOpen = false;
+function _onFailure() {
+  circuitBreaker.failures += 1;
+  circuitBreaker.lastFailure = Date.now();
+  if (circuitBreaker.failures >= circuitBreaker.threshold) {
+    circuitBreaker.state = 'OPEN';
+    logger.error(
+      `AI Service circuit breaker → OPEN after ${circuitBreaker.failures} failures`
+    );
+  }
 }
 
-// =============================================================================
-// RETRY LOGIC WITH EXPONENTIAL BACKOFF
-// =============================================================================
-
-async function fetchWithRetry(url, options, retries = CONFIG.maxRetries) {
-    if (!checkCircuitBreaker()) {
-        throw new Error('AI service circuit breaker is open. Service is temporarily unavailable.');
-    }
-
-    for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
-
-            const response = await fetch(url, {
-                ...options,
-                signal: controller.signal,
-            });
-
-            clearTimeout(timeoutId);
-
-            if (!response.ok) {
-                const errorBody = await response.text().catch(() => 'No response body');
-                throw new Error(`AI service returned ${response.status}: ${errorBody}`);
-            }
-
-            const result = await response.json();
-            recordSuccess();
-            return result;
-
-        } catch (error) {
-            const isLastAttempt = attempt === retries;
-
-            if (error.name === 'AbortError') {
-                logger.warn(`AI service timeout (attempt ${attempt}/${retries})`);
-            } else {
-                logger.warn(`AI service error (attempt ${attempt}/${retries}): ${error.message}`);
-            }
-
-            if (isLastAttempt) {
-                recordFailure();
-                throw error;
-            }
-
-            // Exponential backoff: 1s, 2s, 4s, 8s...
-            const delay = Math.pow(2, attempt - 1) * 1000;
-            await new Promise(resolve => setTimeout(resolve, delay));
-        }
-    }
-}
-
-// =============================================================================
-// AI SERVICE METHODS
-// =============================================================================
+// -------------------------------------------------------------------------
+// Core HTTP helpers
+// -------------------------------------------------------------------------
 
 /**
- * Analyze an audio recording and get transcription + evaluation
- * 
- * @param {string} filePath - Absolute path to the audio file
- * @param {Object} options - Additional options
- * @param {string} options.questionText - The question that was asked
- * @param {string} options.category - Question category
- * @returns {Promise<Object>} Analysis results
+ * Make a JSON POST request to the AI Gateway.
  */
-async function analyzeAudio(filePath, options = {}) {
-    const formData = new FormData();
+async function _postJSON(endpoint, body, timeout = TIMEOUT) {
+  _checkCircuit();
 
-    // Read the file as a blob for multipart upload
-    const fileBuffer = fs.readFileSync(filePath);
-    const blob = new Blob([fileBuffer]);
-    formData.append('audio', blob, path.basename(filePath));
-
-    if (options.questionText) formData.append('question_text', options.questionText);
-    if (options.category) formData.append('category', options.category);
-
-    return await fetchWithRetry(`${CONFIG.baseUrl}/api/analyze-audio`, {
+  let lastError;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(`${BASE_URL}${endpoint}`, {
         method: 'POST',
-        headers: {
-            'X-API-Key': CONFIG.apiKey,
-        },
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeout),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        _onSuccess();
+        return data;
+      }
+
+      throw new Error(data.message || `HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+      if (attempt < MAX_RETRIES) {
+        const backoff = Math.pow(2, attempt) * 1000;
+        logger.warn(`AI request retry ${attempt + 1} in ${backoff}ms: ${error.message}`);
+        await new Promise(r => setTimeout(r, backoff));
+      }
+    }
+  }
+
+  _onFailure();
+  throw lastError;
+}
+
+/**
+ * Make a multipart/form-data POST request to the AI Gateway.
+ */
+async function _postForm(endpoint, formData, timeout = TIMEOUT) {
+  _checkCircuit();
+
+  let lastError;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(`${BASE_URL}${endpoint}`, {
+        method: 'POST',
         body: formData,
-    });
+        signal: AbortSignal.timeout(timeout),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        _onSuccess();
+        return data;
+      }
+
+      throw new Error(data.message || `HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+      if (attempt < MAX_RETRIES) {
+        const backoff = Math.pow(2, attempt) * 1000;
+        logger.warn(`AI form request retry ${attempt + 1} in ${backoff}ms: ${error.message}`);
+        await new Promise(r => setTimeout(r, backoff));
+      }
+    }
+  }
+
+  _onFailure();
+  throw lastError;
 }
 
+// =========================================================================
+// PUBLIC API
+// =========================================================================
+
 /**
- * Transcribe audio to text only
- * 
- * @param {string} filePath - Absolute path to the audio file
- * @returns {Promise<Object>} { transcription: string }
+ * Transcribe audio to text (Speech-to-Text via Whisper).
  */
-async function transcribeAudio(filePath) {
-    const formData = new FormData();
-    const fileBuffer = fs.readFileSync(filePath);
-    const blob = new Blob([fileBuffer]);
-    formData.append('audio', blob, path.basename(filePath));
+async function transcribeAudio(audioBuffer, filename = 'audio.webm', language = null) {
+  const formData = new FormData();
+  const blob = new Blob([audioBuffer], { type: 'audio/webm' });
+  formData.append('audio', blob, filename);
+  if (language) formData.append('language', language);
 
-    return await fetchWithRetry(`${CONFIG.baseUrl}/api/transcribe`, {
-        method: 'POST',
-        headers: {
-            'X-API-Key': CONFIG.apiKey,
-        },
-        body: formData,
-    });
+  return _postForm('/api/ai/transcribe', formData, 60000);
 }
 
 /**
- * Generate interview questions using AI
- * 
- * @param {Object} params
- * @param {string} params.jobTitle - Target job position
- * @param {string[]} params.skills - Required skills
- * @param {string} params.difficulty - easy/medium/hard
- * @param {number} params.count - Number of questions
- * @returns {Promise<Object>} { questions: Array }
+ * Analyze text with NLP (Sentence-BERT semantic similarity).
  */
-async function generateQuestions(params) {
-    return await fetchWithRetry(`${CONFIG.baseUrl}/api/generate-questions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': CONFIG.apiKey,
-        },
-        body: JSON.stringify({
-            job_title: params.jobTitle,
-            skills: params.skills || [],
-            difficulty: params.difficulty || 'medium',
-            count: params.count || 5,
-        }),
-    });
+async function analyzeNLP(userAnswer, referenceAnswer = '') {
+  return _postJSON('/api/ai/analyze-nlp', {
+    user_answer: userAnswer,
+    reference_answer: referenceAnswer,
+  });
 }
 
 /**
- * Submit audio for async analysis (webhook pattern)
- * AI service will call back to our webhook when done
- * 
- * @param {string} answerId - Answer record ID
- * @param {string} filePath - Audio file path
- * @param {string} callbackUrl - Webhook URL for results
+ * Analyze vocal characteristics from audio.
  */
-async function submitForAsyncAnalysis(answerId, filePath, callbackUrl) {
-    const formData = new FormData();
-    const fileBuffer = fs.readFileSync(filePath);
-    const blob = new Blob([fileBuffer]);
-    formData.append('audio', blob, path.basename(filePath));
-    formData.append('answer_id', answerId);
-    formData.append('callback_url', callbackUrl);
+async function analyzeVoice(audioBuffer, filename = 'audio.webm', quick = true) {
+  const formData = new FormData();
+  const blob = new Blob([audioBuffer], { type: 'audio/webm' });
+  formData.append('audio', blob, filename);
+  if (quick) formData.append('quick', 'true');
 
-    return await fetchWithRetry(`${CONFIG.baseUrl}/api/analyze-async`, {
-        method: 'POST',
-        headers: {
-            'X-API-Key': CONFIG.apiKey,
-        },
-        body: formData,
-    });
+  return _postForm('/api/ai/analyze-voice', formData, 60000);
 }
 
 /**
- * Health check for AI service (used by circuit breaker recovery)
+ * Analyze facial expressions from video.
+ */
+async function analyzeFace(videoBuffer, filename = 'video.webm') {
+  const formData = new FormData();
+  const blob = new Blob([videoBuffer], { type: 'video/webm' });
+  formData.append('video', blob, filename);
+
+  return _postForm('/api/ai/analyze-face', formData, 120000);
+}
+
+/**
+ * Generate interview questions via Gemini AI.
+ */
+async function generateQuestions(jobRole, techStack, difficulty = 'Medium', options = {}) {
+  return _postJSON('/api/ai/generate-questions', {
+    job_role: jobRole,
+    tech_stack: techStack,
+    difficulty,
+    include_soft_skills: options.includeSoftSkills || false,
+    num_soft_skills: options.numSoftSkills || 2,
+  });
+}
+
+/**
+ * Generate AI feedback for an answer via Gemini.
+ */
+async function generateFeedback(question, userAnswer) {
+  return _postJSON('/api/ai/generate-feedback', {
+    question,
+    user_answer: userAnswer,
+  });
+}
+
+/**
+ * Combine voice and facial scores via the Fusion Engine.
+ */
+async function fuseScores(voiceData, faceData) {
+  return _postJSON('/api/ai/fuse-scores', {
+    voice_data: voiceData,
+    face_data: faceData,
+  });
+}
+
+/**
+ * Comprehensive answer analysis (STT + NLP + Voice in one call).
+ */
+async function analyzeAnswerComprehensive(audioBuffer, questionText, referenceAnswer = '', filename = 'audio.webm') {
+  const formData = new FormData();
+  const blob = new Blob([audioBuffer], { type: 'audio/webm' });
+  formData.append('audio', blob, filename);
+  formData.append('question_text', questionText);
+  if (referenceAnswer) formData.append('reference_answer', referenceAnswer);
+
+  return _postForm('/api/ai/analyze-answer', formData, 120000);
+}
+
+/**
+ * Health check — verify AI Gateway is reachable.
  */
 async function healthCheck() {
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        const response = await fetch(`${CONFIG.baseUrl}/health`, {
-            signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-        return response.ok;
-    } catch {
-        return false;
-    }
+  try {
+    const response = await fetch(`${BASE_URL}/api/ai/health`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    const data = await response.json();
+    _onSuccess();
+    return { available: true, ...data };
+  } catch (error) {
+    _onFailure();
+    return { available: false, error: error.message };
+  }
 }
 
 /**
- * Get circuit breaker status (for monitoring)
+ * Get circuit breaker status (for debugging / admin endpoints).
  */
-function getStatus() {
-    return {
-        isAvailable: !circuitState.isOpen,
-        failures: circuitState.failures,
-        lastFailure: circuitState.lastFailure,
-        baseUrl: CONFIG.baseUrl,
-    };
+function getCircuitBreakerStatus() {
+  return {
+    state: circuitBreaker.state,
+    failures: circuitBreaker.failures,
+    threshold: circuitBreaker.threshold,
+    lastFailure: circuitBreaker.lastFailure
+      ? new Date(circuitBreaker.lastFailure).toISOString()
+      : null,
+  };
 }
 
 module.exports = {
-    analyzeAudio,
-    transcribeAudio,
-    generateQuestions,
-    submitForAsyncAnalysis,
-    healthCheck,
-    getStatus,
-    CONFIG,
+  transcribeAudio,
+  analyzeNLP,
+  analyzeVoice,
+  analyzeFace,
+  generateQuestions,
+  generateFeedback,
+  fuseScores,
+  analyzeAnswerComprehensive,
+  healthCheck,
+  getCircuitBreakerStatus,
 };

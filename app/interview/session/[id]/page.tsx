@@ -217,14 +217,13 @@ export default function InterviewSessionPage() {
 
     setIsProcessing(true)
     try {
-      // Submit answer to backend
-      // Note: Audio blob is created but file upload endpoint needed for actual audio storage
-      // For now, we record that an answer was submitted with placeholder text
+      // Submit answer to backend with actual audio recording
       await answersApi.submit({
         question_id: currentQuestion.id,
         session_id: sessionId,
-        answer_text: audioBlob ? `[Audio recording - ${Math.round(audioBlob.size / 1024)}KB]` : "[No recording]",
-        // audio_url would be set after file upload implementation
+        audio_blob: audioBlob,
+        audio_duration: timeElapsed,
+        answer_text: "", // Background AI will generate transcription
       })
       toast.success("Answer submitted!")
     } catch (error) {

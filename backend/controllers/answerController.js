@@ -208,54 +208,46 @@ async function processWithAI(answerId, filePath) {
         // Mark as processing
         await Answer.findByIdAndUpdate(answerId, { processingStatus: 'processing' });
 
-        // -----------------------------------------------------------------------
-        // PHASE 5 SWITCH: Toggle between placeholder and real AI
-        // -----------------------------------------------------------------------
-        // To activate Phase 5 AI processing:
-        // 1. Set USE_REAL_AI=true in .env
-        // 2. Set AI_SERVICE_URL=http://your-fastapi-host:8000 in .env
-        // 3. Set AI_SERVICE_API_KEY=your-api-key in .env
-        // 4. Ensure your Python FastAPI microservice is running
-        // -----------------------------------------------------------------------
-        const useRealAI = process.env.USE_REAL_AI === 'true';
-        let simulatedResult;
+        const aiServices = require('../services');
+        const Question = require('../models/Question');
 
-        if (useRealAI) {
-            // PHASE 5: Real AI processing via aiServiceClient
-            const aiServiceClient = require('../services/aiServiceClient');
-            const aiResult = await aiServiceClient.analyzeAudio(filePath, {
-                questionText: '', // Could be loaded from Answer → Question
-                category: '',
-            });
-            simulatedResult = {
-                transcription: aiResult.transcription || '',
-                evaluationScore: aiResult.score || 0,
-                feedback: aiResult.feedback || 'AI analysis complete.',
-            };
-            logger.info(`Real AI processing completed for answer ${answerId}`);
-        } else {
-            // Placeholder: Simulate AI processing delay
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            simulatedResult = {
-                transcription: 'This is a simulated transcription from the AI service. The candidate discussed their experience with...',
-                evaluationScore: Math.floor(Math.random() * 30) + 65, // 65-95
-                feedback: 'The answer demonstrates a solid understanding of the topic. Consider providing more specific examples.',
-            };
-        }
-        // -----------------------------------------------------------------------
-        // END PHASE 5 SWITCH
-        // -----------------------------------------------------------------------
+        // Get answer and question details
+        const answer = await Answer.findById(answerId);
+        if (!answer) throw new Error('Answer not found');
 
-        // Update answer with AI results
+        const question = await Question.findById(answer.questionId);
+        
+        // -----------------------------------------------------------------------
+        // Run unified AI analysis (STT + NLP + Voice + Facial)
+        // -----------------------------------------------------------------------
+        const analysis = await aiServices.analyzeAnswer({
+            text: answer.answerText, // Could be empty if only audio provided
+            reference: question?.expectedAnswer || '',
+            audioUrl: filePath,
+            videoUrl: filePath, // Assuming video recorded in same file or handle separately
+            filename: answer.audioFileName,
+        });
+
+        // -----------------------------------------------------------------------
+        // Update answer with Results
+        // -----------------------------------------------------------------------
         await Answer.findByIdAndUpdate(answerId, {
-            transcription: simulatedResult.transcription,
-            evaluationScore: simulatedResult.evaluationScore,
-            feedback: simulatedResult.feedback,
+            transcription: analysis.nlp?.metrics?.transcription || analysis.vocal?.transcription || '',
+            evaluationScore: analysis.overallScore,
+            feedback: _generateFeedback(analysis),
             processingStatus: 'completed',
             processedAt: new Date(),
         });
 
-        logger.info(`AI processing completed for answer ${answerId}, score: ${simulatedResult.evaluationScore}`);
+        // Persist detailed AnswerAnalysis record for the results page
+        await aiServices.saveAnalysis(
+            answerId,
+            answer.interviewId,
+            answer.userId,
+            analysis
+        );
+
+        logger.info(`AI processing completed for answer ${answerId}, score: ${analysis.overallScore}`);
 
         // Clean up the temporary audio file after processing
         await safeDeleteFile(filePath);
@@ -267,9 +259,19 @@ async function processWithAI(answerId, filePath) {
         await Answer.findByIdAndUpdate(answerId, {
             processingStatus: 'failed',
         }).catch(err => logger.error(`Failed to update answer status: ${err.message}`));
-
-        // Don't delete file on failure — keep for retry
     }
+}
+
+/**
+ * Generate feedback text from analysis
+ */
+function _generateFeedback(analysis) {
+    const parts = [];
+    if (analysis.nlp?.feedback?.summary) parts.push(analysis.nlp.feedback.summary);
+    if (analysis.vocal?.feedback?.summary) parts.push(analysis.vocal.feedback.summary);
+    if (analysis.facial?.feedback?.summary) parts.push(analysis.facial.feedback.summary);
+    
+    return parts.length > 0 ? parts.join(' ') : 'Answer analyzed successfully.';
 }
 
 /**

@@ -1,0 +1,34 @@
+# =============================================================================
+# AI Gateway - Python Dependencies
+# =============================================================================
+# Install: pip install -r requirements.txt
+
+# Web Framework
+flask==3.1.1
+flask-cors==5.0.1
+gunicorn==23.0.0
+
+# Google Gemini (Answer Generation)
+google-generativeai==0.8.5
+python-dotenv==1.1.0
+
+# NLP Evaluation (Sentence-BERT)
+sentence-transformers==3.4.1
+scikit-learn==1.6.1
+
+# Speech-to-Text (Whisper)
+openai-whisper==20240930
+
+# Voice Analysis (Wav2Vec2 + librosa)
+transformers==4.48.3
+librosa==0.10.2.post1
+soundfile==0.13.1
+scipy==1.15.2
+
+# Facial Analysis (DeepFace)
+deepface==0.0.93
+opencv-python==4.11.0.86
+
+# Common
+torch==2.6.0
+numpy==2.2.3

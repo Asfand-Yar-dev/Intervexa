@@ -140,17 +140,30 @@ async function triggerAIEvaluation(answerId, data) {
   try {
     const aiServices = require('../services');
 
-    // Run analysis (uses placeholders if AI not configured)
+    // Run analysis (uses real AI if USE_REAL_AI=true, else heuristic fallback)
     const analysis = await aiServices.analyzeAnswer(data);
 
     // Update answer with evaluation results
     if (analysis.overallScore != null) {
+      const answer = await Answer.findById(answerId);
+
       await Answer.findByIdAndUpdate(answerId, {
         evaluationScore: analysis.overallScore,
         feedback: generateFeedbackText(analysis),
+        transcription: analysis.nlp?.metrics?.transcription || '',
         processingStatus: 'completed',
         processedAt: new Date(),
       });
+
+      // Persist detailed AnswerAnalysis record for the results page
+      if (answer) {
+        await aiServices.saveAnalysis(
+          answerId,
+          answer.interviewId,
+          answer.userId,
+          analysis
+        );
+      }
 
       logger.info(`AI evaluation completed for answer ${answerId}: score=${analysis.overallScore}`);
     }

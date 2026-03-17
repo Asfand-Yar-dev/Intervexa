@@ -311,15 +311,12 @@ router.put('/:sessionId/end', authenticate, asyncHandler(async (req, res) => {
   await session.save(); // pre-save hook auto-calculates duration
 
   // =========================================================================
-  // PHASE 5: Trigger Result Compilation (activate when AI service is ready)
+  // PHASE 5: Trigger Result Compilation
   // =========================================================================
-  // When the AI microservice is integrated, uncomment to auto-compile results
-  // after an interview ends. This aggregates all AnswerAnalysis records into
-  // a single Result document.
-  //
-  // compileInterviewResult(session._id, req.user.id).catch(err => {
-  //   logger.error(`Result compilation failed for session ${session._id}: ${err.message}`);
-  // });
+  const { compileInterviewResult } = require('./resultRoutes');
+  compileInterviewResult(session._id, req.user.id).catch(err => {
+    logger.error(`Result compilation failed for session ${session._id}: ${err.message}`);
+  });
   // =========================================================================
 
   logger.info(`Interview session ended: ${session._id}`);

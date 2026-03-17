@@ -1,166 +1,167 @@
 /**
  * =============================================================================
- * NLP EVALUATION SERVICE
+ * NLP SERVICE — Real AI Integration
  * =============================================================================
- * 
- * This service handles Natural Language Processing analysis for interview answers.
- * Currently uses placeholder logic - replace with actual AI model integration.
- * 
- * FUTURE INTEGRATION POINTS:
- * - OpenAI GPT for content analysis
- * - Custom fine-tuned models for interview-specific evaluation
- * - Keyword matching and STAR method detection
- * 
- * @version 1.0.0 (Placeholder)
+ *
+ * Calls the Python AI Gateway's /api/ai/analyze-nlp endpoint
+ * to evaluate answer quality using Sentence-BERT semantic similarity.
+ *
+ * Falls back to placeholder scoring when USE_REAL_AI is false or
+ * the AI Gateway is unreachable.
  * =============================================================================
  */
 
 const logger = require('../config/logger');
 
-/**
- * NLP Service Configuration
- * Toggle between placeholder and real AI
- */
-const CONFIG = {
-  USE_REAL_AI: process.env.USE_NLP_AI === 'true',
-  AI_ENDPOINT: process.env.NLP_AI_ENDPOINT || '',
-  AI_API_KEY: process.env.NLP_AI_API_KEY || '',
-};
+// AI Gateway base URL from environment
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+const USE_REAL_AI = process.env.USE_REAL_AI === 'true';
 
 /**
- * Analyze text content of an interview answer
- * @param {string} text - The answer text to analyze
- * @param {Object} options - Analysis options
- * @returns {Promise<Object>} Analysis results
+ * Analyze text content using NLP / Sentence-BERT
+ *
+ * @param {Object} params
+ * @param {string} params.text          – User's answer (or transcribed text)
+ * @param {string} [params.reference]   – Expected/reference answer for comparison
+ * @returns {Promise<Object>}           – { score, metrics, feedback }
  */
-async function analyze(text, options = {}) {
-  if (!text || typeof text !== 'string' || text.trim().length === 0) {
-    return getDefaultResult();
+async function analyzeContent({ text, reference = '' }) {
+  if (!text || text.trim().length === 0) {
+    return _emptyResult('No text provided for NLP analysis.');
   }
 
-  if (CONFIG.USE_REAL_AI && CONFIG.AI_ENDPOINT) {
-    return await analyzeWithRealAI(text, options);
+  // -----------------------------------------------------------------------
+  // Try real AI service first (if enabled)
+  // -----------------------------------------------------------------------
+  if (USE_REAL_AI) {
+    try {
+      const response = await fetch(`${AI_SERVICE_URL}/api/ai/analyze-nlp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_answer: text,
+          reference_answer: reference,
+        }),
+        signal: AbortSignal.timeout(30000), // 30-second timeout
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.status === 'success') {
+          logger.info(`NLP AI analysis completed: score=${result.score}`);
+          return {
+            score: Math.round(result.score),
+            metrics: {
+              relevance: Math.round(result.score),
+              completeness: _estimateCompleteness(text),
+              coherence: _estimateCoherence(text),
+              wordCount: text.split(/\s+/).length,
+            },
+            feedback: {
+              summary: result.feedback || 'Answer analyzed successfully.',
+              strengths: _generateStrengths(result.score),
+              improvements: _generateImprovements(result.score),
+            },
+          };
+        }
+      }
+      logger.warn('NLP AI returned non-success, falling back to heuristic');
+    } catch (error) {
+      logger.warn(`NLP AI service unreachable: ${error.message}. Using heuristic.`);
+    }
   }
-  
-  return analyzePlaceholder(text, options);
+
+  // -----------------------------------------------------------------------
+  // Fallback: Heuristic-based analysis
+  // -----------------------------------------------------------------------
+  return _heuristicAnalysis(text);
 }
 
-/**
- * Placeholder analysis - simulates AI evaluation
- * Returns reasonable scores based on text length and structure
- */
-function analyzePlaceholder(text, options = {}) {
-  const words = text.split(/\s+/).filter(w => w.length > 0);
+// =========================================================================
+// Heuristic / Fallback Analysis
+// =========================================================================
+
+function _heuristicAnalysis(text) {
+  const words = text.split(/\s+/).filter(Boolean);
   const wordCount = words.length;
   const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
-  const sentenceCount = sentences.length;
-  
-  // Calculate base score from content metrics
-  let score = 50; // Base score
-  
-  // Reward longer, more detailed answers (up to a point)
-  if (wordCount >= 50) score += 10;
-  if (wordCount >= 100) score += 10;
-  if (wordCount >= 150) score += 5;
-  
-  // Reward structured responses (multiple sentences)
-  if (sentenceCount >= 3) score += 10;
-  if (sentenceCount >= 5) score += 5;
-  
-  // Check for STAR method keywords
-  const starKeywords = ['situation', 'task', 'action', 'result', 'challenge', 'approach', 'outcome'];
-  const foundStarKeywords = starKeywords.filter(k => text.toLowerCase().includes(k));
-  if (foundStarKeywords.length >= 2) score += 10;
-  
-  // Cap score at 100
-  score = Math.min(score, 100);
-  
-  // Generate feedback
-  const strengths = [];
-  const improvements = [];
-  
-  if (wordCount >= 50) {
-    strengths.push('Provided a well-developed response');
-  } else {
-    improvements.push('Consider providing more detail in your answer');
-  }
-  
-  if (foundStarKeywords.length >= 2) {
-    strengths.push('Good use of structured response format');
-  } else {
-    improvements.push('Try using the STAR method (Situation, Task, Action, Result)');
-  }
-  
+  const avgSentenceLength = sentences.length > 0 ? wordCount / sentences.length : 0;
+
+  // Length score — 20-200 words is ideal
+  let lengthScore = wordCount < 10 ? 20 : wordCount < 20 ? 45 : wordCount < 50 ? 65 : wordCount < 200 ? 80 : 70;
+
+  // Sentence complexity — avg 10-20 words is good
+  let complexityScore =
+    avgSentenceLength >= 10 && avgSentenceLength <= 20
+      ? 85
+      : avgSentenceLength < 10
+        ? 60
+        : 65;
+
+  const overallScore = Math.round(lengthScore * 0.4 + complexityScore * 0.6);
+
   return {
-    score,
-    confidence: 0.8, // Placeholder confidence
+    score: overallScore,
     metrics: {
+      relevance: overallScore,
+      completeness: _estimateCompleteness(text),
+      coherence: _estimateCoherence(text),
       wordCount,
-      sentenceCount,
-      avgWordsPerSentence: sentenceCount > 0 ? Math.round(wordCount / sentenceCount) : 0,
-      starMethodDetected: foundStarKeywords.length >= 2,
     },
     feedback: {
-      strengths,
-      improvements,
-      summary: score >= 75 
-        ? 'Good answer with clear structure and detail.'
-        : 'Answer could benefit from more detail and structure.',
+      summary:
+        overallScore >= 75
+          ? 'Good answer with solid structure and detail.'
+          : overallScore >= 50
+            ? 'Decent answer but could benefit from more detail and examples.'
+            : 'Answer needs more substance. Try to provide specific examples.',
+      strengths: _generateStrengths(overallScore),
+      improvements: _generateImprovements(overallScore),
     },
-    isPlaceholder: true,
   };
 }
 
-/**
- * Real AI analysis - to be implemented with actual AI service
- */
-async function analyzeWithRealAI(text, options = {}) {
-  try {
-    logger.info('Analyzing with real NLP AI service');
-    
-    // TODO: Implement actual API call to AI service
-    // Example with OpenAI:
-    // const response = await fetch(CONFIG.AI_ENDPOINT, {
-    //   method: 'POST',
-    //   headers: {
-    //     'Authorization': `Bearer ${CONFIG.AI_API_KEY}`,
-    //     'Content-Type': 'application/json',
-    //   },
-    //   body: JSON.stringify({
-    //     model: 'gpt-4',
-    //     messages: [{ role: 'user', content: buildPrompt(text, options) }],
-    //   }),
-    // });
-    
-    // For now, fall back to placeholder
-    return analyzePlaceholder(text, options);
-    
-  } catch (error) {
-    logger.error('NLP AI analysis failed:', error.message);
-    // Fall back to placeholder on error
-    return analyzePlaceholder(text, options);
-  }
-}
+// =========================================================================
+// Helper Functions
+// =========================================================================
 
-/**
- * Get default result for invalid input
- */
-function getDefaultResult() {
+function _emptyResult(message) {
   return {
-    score: null,
-    confidence: 0,
-    metrics: {},
-    feedback: {
-      strengths: [],
-      improvements: ['No answer text provided'],
-      summary: 'Unable to analyze - no content provided.',
-    },
-    isPlaceholder: true,
+    score: 0,
+    metrics: { relevance: 0, completeness: 0, coherence: 0, wordCount: 0 },
+    feedback: { summary: message, strengths: [], improvements: ['Provide a complete answer.'] },
   };
 }
 
-module.exports = {
-  analyze,
-  analyzePlaceholder,
-  CONFIG,
-};
+function _estimateCompleteness(text) {
+  const words = text.split(/\s+/).length;
+  if (words > 100) return 85;
+  if (words > 50) return 70;
+  if (words > 20) return 55;
+  return 30;
+}
+
+function _estimateCoherence(text) {
+  const transitions = [
+    'however', 'therefore', 'additionally', 'moreover',
+    'furthermore', 'first', 'second', 'finally', 'because',
+    'although', 'while', 'for example', 'in conclusion',
+  ];
+  const lower = text.toLowerCase();
+  const found = transitions.filter(t => lower.includes(t)).length;
+  return Math.min(90, 40 + found * 10);
+}
+
+function _generateStrengths(score) {
+  if (score >= 80) return ['Strong, relevant answer', 'Good depth of explanation'];
+  if (score >= 60) return ['Addresses the main topic', 'Shows understanding'];
+  return ['Attempted an answer'];
+}
+
+function _generateImprovements(score) {
+  if (score >= 80) return ['Minor polishing could help'];
+  if (score >= 60) return ['Add more specific examples', 'Expand on key points'];
+  return ['Provide more detail', 'Use examples to support your answer', 'Structure your response better'];
+}
+
+module.exports = { analyzeContent };

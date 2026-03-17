@@ -1,121 +1,162 @@
 /**
  * =============================================================================
- * AI SERVICES - INDEX
+ * AI SERVICES INDEX — Orchestration Layer
  * =============================================================================
+ *
+ * Central orchestrator for all AI analysis services.
  * 
- * This module exports all AI-related services for the interview system.
- * Services are designed to be plug-and-play for future AI model integration.
- * 
- * SERVICE ARCHITECTURE:
- * Each service follows a consistent interface pattern:
- * - analyze(data): Main analysis method
- * - getScore(): Returns normalized score (0-100)
- * - getFeedback(): Returns structured feedback
- * 
- * HOW TO ADD NEW AI MODELS:
- * 1. Create a new service file (e.g., newAiService.js)
- * 2. Implement the standard interface
- * 3. Export from this index file
- * 4. Inject in the answer evaluation pipeline
- * 
- * @version 1.0.0
+ * This module:
+ *   1. Imports NLP, Vocal, and Facial services
+ *   2. Provides analyzeAnswer() which runs all analyses concurrently
+ *   3. Saves AnswerAnalysis records to the database
+ *   4. Calculates composite scores
+ *
+ * Each individual service handles its own fallback to heuristic scoring
+ * when the Python AI Gateway is unavailable.
  * =============================================================================
  */
 
 const nlpService = require('./nlpService');
 const vocalService = require('./vocalService');
 const facialService = require('./facialService');
+const logger = require('../config/logger');
+
+/**
+ * Run all AI analyses concurrently on a submitted answer.
+ *
+ * @param {Object} params
+ * @param {string} params.text         – Answer text or transcribed speech
+ * @param {string} [params.reference]  – Reference answer for NLP comparison
+ * @param {string} [params.audioUrl]   – Path/URL to audio file
+ * @param {Buffer} [params.audioBuffer] – Raw audio buffer
+ * @param {string} [params.videoUrl]   – Path/URL to video file
+ * @param {Buffer} [params.videoBuffer] – Raw video buffer
+ * @param {string} [params.filename]   – Original filename
+ * @returns {Promise<Object>}
+ */
+async function analyzeAnswer({ text, reference, audioUrl, audioBuffer, videoUrl, videoBuffer, filename }) {
+  const results = {
+    nlp: null,
+    vocal: null,
+    facial: null,
+    overallScore: 0,
+    timestamp: new Date().toISOString(),
+  };
+
+  // Run all analyses concurrently (each handles its own errors internally)
+  const [nlpResult, vocalResult, facialResult] = await Promise.allSettled([
+    nlpService.analyzeContent({ text, reference }),
+    vocalService.analyzeVocal({ audioUrl, audioBuffer, filename }),
+    facialService.analyzeFacial({ videoUrl, videoBuffer, filename }),
+  ]);
+
+  // Extract results (default to null on rejection)
+  results.nlp = nlpResult.status === 'fulfilled' ? nlpResult.value : null;
+  results.vocal = vocalResult.status === 'fulfilled' ? vocalResult.value : null;
+  results.facial = facialResult.status === 'fulfilled' ? facialResult.value : null;
+
+  // Log any failures
+  if (nlpResult.status === 'rejected') {
+    logger.error(`NLP analysis failed: ${nlpResult.reason}`);
+  }
+  if (vocalResult.status === 'rejected') {
+    logger.error(`Vocal analysis failed: ${vocalResult.reason}`);
+  }
+  if (facialResult.status === 'rejected') {
+    logger.error(`Facial analysis failed: ${facialResult.reason}`);
+  }
+
+  // -----------------------------------------------------------------------
+  // Calculate overall composite score
+  // Weights: NLP (Content) 40%, Vocal 30%, Facial 30%
+  // Only score components that actually returned data
+  // -----------------------------------------------------------------------
+  const components = [];
+  if (results.nlp?.score != null) {
+    components.push({ score: results.nlp.score, weight: 0.4, label: 'nlp' });
+  }
+  if (results.vocal?.score != null) {
+    components.push({ score: results.vocal.score, weight: 0.3, label: 'vocal' });
+  }
+  if (results.facial?.score != null) {
+    components.push({ score: results.facial.score, weight: 0.3, label: 'facial' });
+  }
+
+  if (components.length > 0) {
+    // Re-normalise weights so they always sum to 1.0
+    const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
+    results.overallScore = Math.round(
+      components.reduce((sum, c) => sum + c.score * (c.weight / totalWeight), 0)
+    );
+  }
+
+  logger.info(
+    `Answer analysis complete: overall=${results.overallScore} ` +
+    `(nlp=${results.nlp?.score ?? 'N/A'}, vocal=${results.vocal?.score ?? 'N/A'}, ` +
+    `facial=${results.facial?.score ?? 'N/A'})`
+  );
+
+  return results;
+}
+
+/**
+ * Save analysis results into the AnswerAnalysis collection.
+ *
+ * @param {string} answerId     – The Answer document's _id
+ * @param {string} interviewId  – The InterviewSession _id
+ * @param {string} userId       – The User _id
+ * @param {Object} analysis     – Output from analyzeAnswer()
+ * @returns {Promise<Object|null>}
+ */
+async function saveAnalysis(answerId, interviewId, userId, analysis) {
+  try {
+    const AnswerAnalysis = require('../models/AnswerAnalysis');
+
+    const doc = await AnswerAnalysis.findOneAndUpdate(
+      { answerId },
+      {
+        answerId,
+        interviewId,
+        userId,
+        // Scores
+        confidenceScore: analysis.vocal?.metrics?.confidence ?? analysis.nlp?.score ?? 0,
+        clarityScore: analysis.vocal?.metrics?.clarity ?? analysis.nlp?.metrics?.coherence ?? 0,
+        technicalScore: analysis.nlp?.score ?? 0,
+        bodyLanguageScore: analysis.facial?.metrics?.bodyLanguage ?? 0,
+        voiceToneScore: analysis.vocal?.metrics?.tone ?? 0,
+        // Feedback
+        strengths: [
+          ...(analysis.nlp?.feedback?.strengths || []),
+          ...(analysis.vocal?.feedback?.strengths || []),
+          ...(analysis.facial?.feedback?.strengths || []),
+        ].slice(0, 5),
+        improvements: [
+          ...(analysis.nlp?.feedback?.improvements || []),
+          ...(analysis.vocal?.feedback?.improvements || []),
+          ...(analysis.facial?.feedback?.improvements || []),
+        ].slice(0, 5),
+        // Raw data
+        nlpData: analysis.nlp || {},
+        vocalData: analysis.vocal || {},
+        facialData: analysis.facial || {},
+        overallScore: analysis.overallScore,
+        analyzedAt: new Date(),
+      },
+      { upsert: true, new: true }
+    );
+
+    logger.info(`AnswerAnalysis saved: ${doc._id} for answer ${answerId}`);
+    return doc;
+  } catch (error) {
+    logger.error(`Failed to save AnswerAnalysis for answer ${answerId}: ${error.message}`);
+    return null;
+  }
+}
 
 module.exports = {
   nlpService,
   vocalService,
   facialService,
-
-  /**
-   * Analyze an interview answer using all AI services
-   * @param {Object} answerData - The answer data to analyze
-   * @returns {Promise<Object>} Aggregated AI analysis results
-   */
-  async analyzeAnswer(answerData) {
-    const results = await Promise.allSettled([
-      nlpService.analyze(answerData.text),
-      vocalService.analyze(answerData.audioUrl),
-      facialService.analyze(answerData.videoUrl),
-    ]);
-
-    const aggregatedResult = {
-      nlp: results[0].status === 'fulfilled' ? results[0].value : null,
-      vocal: results[1].status === 'fulfilled' ? results[1].value : null,
-      facial: results[2].status === 'fulfilled' ? results[2].value : null,
-
-      // Calculate combined score
-      overallScore: calculateOverallScore(results),
-    };
-
-    // -----------------------------------------------------------------
-    // PHASE 5: Save AnswerAnalysis record for result compilation
-    // -----------------------------------------------------------------
-    // When AI services return real data, uncomment to persist results:
-    //
-    // if (answerData.answerId && aggregatedResult.overallScore != null) {
-    //   const AnswerAnalysis = require('../models/AnswerAnalysis');
-    //   await AnswerAnalysis.findOneAndUpdate(
-    //     { answerId: answerData.answerId },
-    //     {
-    //       answerId: answerData.answerId,
-    //       confidenceScore: aggregatedResult.vocal?.metrics?.confidence || 0,
-    //       clarityScore: aggregatedResult.nlp?.score || 0,
-    //       technicalScore: aggregatedResult.nlp?.score || 0,
-    //       bodyLanguageScore: aggregatedResult.facial?.metrics?.bodyLanguage || 0,
-    //       voiceToneScore: aggregatedResult.vocal?.score || 0,
-    //       keywords: [],
-    //       strengths: [
-    //         ...(aggregatedResult.nlp?.feedback?.strengths || []),
-    //         ...(aggregatedResult.vocal?.feedback?.strengths || []),
-    //         ...(aggregatedResult.facial?.feedback?.strengths || []),
-    //       ],
-    //       improvements: [
-    //         ...(aggregatedResult.nlp?.feedback?.improvements || []),
-    //         ...(aggregatedResult.vocal?.feedback?.improvements || []),
-    //         ...(aggregatedResult.facial?.feedback?.improvements || []),
-    //       ],
-    //       detailedFeedback: `Content: ${aggregatedResult.nlp?.feedback?.summary || 'N/A'}. ` +
-    //         `Voice: ${aggregatedResult.vocal?.feedback?.summary || 'N/A'}. ` +
-    //         `Visual: ${aggregatedResult.facial?.feedback?.summary || 'N/A'}.`,
-    //     },
-    //     { upsert: true, new: true }
-    //   );
-    // }
-    // -----------------------------------------------------------------
-
-    return aggregatedResult;
-  }
+  analyzeAnswer,
+  saveAnalysis,
 };
-
-/**
- * Calculate weighted overall score from individual analyses
- */
-function calculateOverallScore(results) {
-  let totalWeight = 0;
-  let weightedSum = 0;
-
-  // NLP (content quality) - 50% weight
-  if (results[0].status === 'fulfilled' && results[0].value.score != null) {
-    weightedSum += results[0].value.score * 0.5;
-    totalWeight += 0.5;
-  }
-
-  // Vocal analysis - 25% weight
-  if (results[1].status === 'fulfilled' && results[1].value.score != null) {
-    weightedSum += results[1].value.score * 0.25;
-    totalWeight += 0.25;
-  }
-
-  // Facial analysis - 25% weight
-  if (results[2].status === 'fulfilled' && results[2].value.score != null) {
-    weightedSum += results[2].value.score * 0.25;
-    totalWeight += 0.25;
-  }
-
-  return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : null;
-}
