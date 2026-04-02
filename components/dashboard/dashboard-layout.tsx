@@ -167,6 +167,7 @@ function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () 
                 src={user.profilePicture} 
                 alt={displayName} 
                 className="h-full w-full object-cover"
+                referrerPolicy="no-referrer"
               />
             ) : (
               <span className="text-sm font-medium text-accent">{initials}</span>
