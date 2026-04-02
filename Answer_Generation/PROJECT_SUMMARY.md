@@ -64,7 +64,7 @@ Answer_Generation/
 - **Testing**: Built-in test suite with multiple scenarios
 - **Best Practices**: PEP 8 compliant, clean architecture
 
-## 🚀 How to Use
+##  How to Use
 
 ### Installation
 ```bash
@@ -219,7 +219,7 @@ To integrate into your system:
 📝 **Well Documented**: 40% documentation coverage  
 🧪 **Tested**: Built-in test suite included  
 🔒 **Secure**: Proper API key management  
-🚀 **Easy to Use**: Simple 3-line integration  
+ **Easy to Use**: Simple 3-line integration  
 📚 **Educational**: Detailed comments explaining Gemini API setup  
 
 ---

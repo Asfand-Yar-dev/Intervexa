@@ -67,7 +67,7 @@ Feedback: Good answer! Relevant but could include more details.
 
 ---
 
-## 🚀 Run the Demo
+##  Run the Demo
 
 Want to see multiple examples at once?
 
@@ -216,7 +216,7 @@ NLP_Evaluation/
 
 ---
 
-**Ready to evaluate some answers? Let's go! 🚀**
+**Ready to evaluate some answers? Let's go! **
 
 ```bash
 python ai_engine/nlp_analysis.py

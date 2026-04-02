@@ -1,4 +1,4 @@
-# 🚀 Quick Start Guide
+#  Quick Start Guide
 
 Get your Smart Mock Interview System running in **3 simple steps**!
 
@@ -113,7 +113,7 @@ Read the full documentation:
 ✅ FPS shows 25-30 (smooth video)  
 ✅ Pressing 'Q' closes the app cleanly  
 
-If all checked, you're ready to go! 🚀
+If all checked, you're ready to go! 
 
 ## 🆘 Still Having Issues?
 

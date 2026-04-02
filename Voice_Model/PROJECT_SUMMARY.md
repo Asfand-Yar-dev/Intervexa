@@ -88,7 +88,7 @@ Surprised:        #ec4899 (Pink)
 
 ---
 
-## 🚀 How to Run
+##  How to Run
 
 ### Quick Start (Easiest)
 ```bash
@@ -319,7 +319,7 @@ output_dir = Path(__file__).parent / "recordings"
 
 ---
 
-## 🚀 Next Steps (Optional Enhancements)
+##  Next Steps (Optional Enhancements)
 
 ### Possible Future Features
 - [ ] Export results to CSV/JSON

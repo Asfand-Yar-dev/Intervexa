@@ -67,7 +67,7 @@ npm start
 
 The backend will start on **http://localhost:5000**. You should see:
 ```
-🚀 Server running on port 5000
+ Server running on port 5000
 ✅ MongoDB Connected
 ```
 

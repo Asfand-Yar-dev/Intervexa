@@ -25,7 +25,7 @@ quantum-cluster/
 └── README.md                     # This file
 ```
 
-## 🚀 Installation
+##  Installation
 
 ### Step 1: Install Python Dependencies
 

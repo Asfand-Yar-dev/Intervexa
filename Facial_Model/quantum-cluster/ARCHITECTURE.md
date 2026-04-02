@@ -176,7 +176,7 @@ GUI Visualization (green box + label)
 Display to User
 ```
 
-## 🚀 Execution Flow
+##  Execution Flow
 
 ### Initial Setup
 1. User runs `python tests/test_gui.py`

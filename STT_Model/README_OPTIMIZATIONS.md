@@ -1,6 +1,6 @@
 # STT Module - Optimized Implementation
 
-## 🚀 Major Optimizations & Improvements
+##  Major Optimizations & Improvements
 
 ### **STT Engine (`ai_models/stt_engine.py`)**
 

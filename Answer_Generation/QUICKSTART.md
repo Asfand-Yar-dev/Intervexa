@@ -1,4 +1,4 @@
-# 🚀 Quick Start Guide - Interviewer Agent Module
+#  Quick Start Guide - Interviewer Agent Module
 
 Get up and running with the Interviewer Agent in under 5 minutes!
 

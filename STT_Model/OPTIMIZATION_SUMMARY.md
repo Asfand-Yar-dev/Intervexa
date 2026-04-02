@@ -12,7 +12,7 @@ Your Speech-to-Text (STT) module has been **completely optimized** with major im
 - ⚡ **50-100x faster** model loading on subsequent runs (via caching)
 - 🧠 **Better memory management** - no more memory leaks
 - 💾 **Automatic GPU memory cleanup** after each operation
-- 🚀 **FP16 optimization** on GPU for faster inference
+-  **FP16 optimization** on GPU for faster inference
 
 ### **Code Quality Improvements**
 - 📝 **Full type hints** for better code safety
@@ -81,7 +81,7 @@ Your Speech-to-Text (STT) module has been **completely optimized** with major im
 
 ---
 
-## 🚀 How to Use
+##  How to Use
 
 ### Option 1: Run the GUI (Recommended)
 ```bash
