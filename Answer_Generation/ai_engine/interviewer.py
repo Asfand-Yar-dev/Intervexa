@@ -26,6 +26,7 @@ Version: 1.0
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -71,11 +72,90 @@ class InterviewConductor:
         
         # Configure the Gemini API
         genai.configure(api_key=self.api_key)
-        
-        # Initialize the model (using gemini-2.5-flash which is the latest stable model)
-        self.model = genai.GenerativeModel('gemini-2.5-flash')
-        
-        logger.info("InterviewConductor initialized successfully with Gemini API")
+
+        # Model fallback chain (Gemini-only, no non-Gemini fallback).
+        models_env = os.getenv(
+            "GEMINI_MODELS",
+            "gemini-2.5-flash,gemini-1.5-flash"
+        )
+        configured_names = [m.strip() for m in models_env.split(",") if m.strip()]
+
+        # Keep only models that are available for generateContent in this API/version.
+        available_model_names = set()
+        try:
+            for m in genai.list_models():
+                name = (m.name or "").replace("models/", "")
+                methods = set(getattr(m, "supported_generation_methods", []) or [])
+                if name and "generateContent" in methods:
+                    available_model_names.add(name)
+        except Exception as e:
+            logger.warning(f"Could not list Gemini models; using configured names as-is. Error: {e}")
+
+        if available_model_names:
+            filtered = [m for m in configured_names if m in available_model_names]
+            self.model_names = filtered if filtered else configured_names
+        else:
+            self.model_names = configured_names
+        self.models = [genai.GenerativeModel(name) for name in self.model_names]
+        self.max_retries = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
+
+        logger.info(
+            "InterviewConductor initialized successfully with Gemini API "
+            f"(models={self.model_names}, retries={self.max_retries})"
+        )
+
+    def _extract_retry_delay(self, error_text: str) -> float:
+        """
+        Extract retry delay from Gemini error message when available.
+        Falls back to exponential backoff if missing.
+        """
+        # Matches strings like: "Please retry in 5.406911985s"
+        match = re.search(r"Please retry in ([0-9]+(?:\.[0-9]+)?)s", error_text)
+        if match:
+            return float(match.group(1))
+        # Matches blocks with retry_delay { seconds: 5 }
+        match = re.search(r"retry_delay\s*\{[^}]*seconds:\s*([0-9]+)", error_text)
+        if match:
+            return float(match.group(1))
+        return 0.0
+
+    def _generate_with_retry(self, prompt: str) -> str:
+        """
+        Generate content using Gemini with retry + model fallback.
+        Handles 429 quota/rate-limit errors robustly.
+        """
+        last_error = None
+
+        for model_name, model in zip(self.model_names, self.models):
+            for attempt in range(self.max_retries + 1):
+                try:
+                    response = model.generate_content(prompt)
+                    return (response.text or "").strip()
+                except Exception as e:
+                    last_error = e
+                    err_text = str(e)
+                    is_quota = ("429" in err_text) or ("quota" in err_text.lower()) or ("rate limit" in err_text.lower())
+
+                    if attempt < self.max_retries and is_quota:
+                        retry_after = self._extract_retry_delay(err_text)
+                        if retry_after <= 0:
+                            retry_after = min(8.0, float(2 ** attempt))
+                        # Small buffer avoids immediate re-hit on strict quota windows.
+                        sleep_for = retry_after + 0.25
+                        logger.warning(
+                            f"Gemini quota/rate limit on {model_name}; "
+                            f"retrying in {sleep_for:.2f}s (attempt {attempt + 1}/{self.max_retries})"
+                        )
+                        time.sleep(sleep_for)
+                        continue
+
+                    logger.warning(
+                        f"Gemini generation failed on model={model_name}, "
+                        f"attempt={attempt + 1}: {err_text}"
+                    )
+                    break
+
+        raise RuntimeError(f"Gemini generation failed on all configured models: {last_error}")
     
     def generate_questions(
         self, 
@@ -146,11 +226,8 @@ How would you design a scalable microservices architecture for an e-commerce pla
 Now generate the questions:"""
 
         try:
-            # Generate content using Gemini
-            response = self.model.generate_content(system_prompt)
-            
-            # Extract the text from response
-            generated_text = response.text.strip()
+            # Generate content using Gemini with retry + model fallback
+            generated_text = self._generate_with_retry(system_prompt)
             
             # Split by newlines and clean up
             raw_questions = generated_text.split('\n')
@@ -190,14 +267,9 @@ Now generate the questions:"""
         
         except Exception as e:
             logger.error(f"Error generating questions: {str(e)}")
-            # Return fallback questions in case of error
-            return [
-                f"Describe your experience with {tech_stack.split(',')[0].strip()}.",
-                f"What are the main responsibilities of a {job_role}?",
-                "Explain a challenging technical problem you solved recently.",
-                "How do you stay updated with the latest technologies?",
-                "Describe your approach to debugging complex issues."
-            ]
+            # STRICT REQUIREMENT: Do not fall back to custom/implemented questions.
+            # If Gemini fails, propagate the error so the backend can fail hard.
+            raise RuntimeError(f"Gemini question generation failed: {str(e)}")
     
     def generate_soft_skills_questions(self, job_role: str, num_questions: int = 3) -> List[str]:
         """
@@ -270,11 +342,8 @@ Tell me about a situation where you had to learn a new skill quickly to complete
 Now generate the soft skills questions:"""
 
         try:
-            # Generate content using Gemini
-            response = self.model.generate_content(soft_skills_prompt)
-            
-            # Extract the text from response
-            generated_text = response.text.strip()
+            # Generate content using Gemini with retry + model fallback
+            generated_text = self._generate_with_retry(soft_skills_prompt)
             
             # Split by newlines and clean up
             raw_questions = generated_text.split('\n')
@@ -314,12 +383,9 @@ Now generate the soft skills questions:"""
         
         except Exception as e:
             logger.error(f"Error generating soft skills questions: {str(e)}")
-            # Return fallback soft skills questions
-            return [
-                f"Describe your experience working in a team environment as a {job_role}.",
-                "How do you handle constructive criticism and feedback?",
-                "Tell me about a time when you had to meet a tight deadline."
-            ][:num_questions]
+            # STRICT REQUIREMENT: Do not fall back to custom/implemented questions.
+            # If Gemini fails, propagate the error so the backend can fail hard.
+            raise RuntimeError(f"Gemini soft-skills question generation failed: {str(e)}")
     
     def generate_feedback(self, question: str, user_answer: str) -> str:
         """

@@ -67,14 +67,14 @@ const { HTTP_STATUS } = require('../config/constants');
  * @desc    Register a new user account
  * @access  Public
  */
-router.post('/register', registerValidation, asyncHandler(register));
+router.post('/register', ...registerValidation, asyncHandler(register));
 
 /**
  * @route   POST /api/users/login
  * @desc    Authenticate user and get JWT token
  * @access  Public
  */
-router.post('/login', loginValidation, asyncHandler(login));
+router.post('/login', ...loginValidation, asyncHandler(login));
 
 /**
  * @route   POST /api/users/google

@@ -22,9 +22,9 @@
 
 const Answer = require('../models/Answer');
 const InterviewSession = require('../models/InterviewSession');
+const { SESSION_STATUS } = require('../config/constants');
 const logger = require('../config/logger');
 const fs = require('fs').promises;
-const path = require('path');
 
 /**
  * @desc    Submit answer (audio + metadata)
@@ -32,8 +32,11 @@ const path = require('path');
  * @access  Private
  */
 exports.submitAnswer = async (req, res) => {
-    // Validate file was uploaded
-    if (!req.file) {
+    // Validate files were uploaded
+    const audioFile = req.files?.audio?.[0];
+    const videoFile = req.files?.video?.[0];
+
+    if (!audioFile) {
         return res.status(400).json({
             success: false,
             message: 'No audio file uploaded. Please attach an audio file.'
@@ -45,12 +48,14 @@ exports.submitAnswer = async (req, res) => {
 
     // FIX: Use req.user.id (from JWT payload), not req.user._id
     const userId = req.user.id;
-    const tempFilePath = req.file.path;
+    const audioFilePath = audioFile.path;
+    const videoFilePath = videoFile?.path;
 
     // Validate required fields
     if (!questionId) {
         // Clean up uploaded file if validation fails
-        await safeDeleteFile(tempFilePath);
+        await safeDeleteFile(audioFilePath);
+        if (videoFilePath) await safeDeleteFile(videoFilePath);
         return res.status(400).json({
             success: false,
             message: 'questionId is required in the request body.',
@@ -64,7 +69,8 @@ exports.submitAnswer = async (req, res) => {
     });
 
     if (!session) {
-        await safeDeleteFile(tempFilePath);
+        await safeDeleteFile(audioFilePath);
+        if (videoFilePath) await safeDeleteFile(videoFilePath);
         return res.status(404).json({
             success: false,
             message: 'Interview session not found or access denied.',
@@ -72,7 +78,8 @@ exports.submitAnswer = async (req, res) => {
     }
 
     if (session.status === 'completed' || session.status === 'cancelled') {
-        await safeDeleteFile(tempFilePath);
+        await safeDeleteFile(audioFilePath);
+        if (videoFilePath) await safeDeleteFile(videoFilePath);
         return res.status(400).json({
             success: false,
             message: 'Cannot submit answers to a closed session.',
@@ -84,9 +91,9 @@ exports.submitAnswer = async (req, res) => {
         userId: userId,
         interviewId: interviewId,
         questionId: questionId,
-        audioFileUrl: tempFilePath,
-        audioFileName: req.file.originalname,
-        audioFileSize: req.file.size,
+        audioFileUrl: audioFilePath,
+        audioFileName: audioFile.originalname,
+        audioFileSize: audioFile.size,
         audioDuration: parseFloat(audioDuration) || 0,
         processingStatus: 'pending',
     });
@@ -95,7 +102,10 @@ exports.submitAnswer = async (req, res) => {
     session.answered_questions = (session.answered_questions || 0) + 1;
     await session.save();
 
-    logger.info(`Answer submitted: ${answer._id} for interview ${interviewId}, file: ${tempFilePath}`);
+    logger.info(
+        `Answer submitted: ${answer._id} for interview ${interviewId}, audioFile=${audioFilePath}` +
+        (videoFilePath ? `, videoFile=${videoFilePath}` : '')
+    );
 
     // =========================================================================
     // PHASE 5 PREP: Async AI Processing (Fire-and-Forget)
@@ -107,7 +117,7 @@ exports.submitAnswer = async (req, res) => {
     // Architecture: Express → sends file to AI → AI returns results via webhook
     // OR: Express → puts job in queue (Bull/BullMQ) → worker processes it
     // =========================================================================
-    processWithAI(answer._id, tempFilePath).catch(err => {
+    processWithAI(answer._id, audioFilePath, videoFilePath).catch(err => {
         logger.error(`Background AI processing failed for answer ${answer._id}: ${err.message}`);
     });
 
@@ -203,62 +213,223 @@ exports.getAnswerStatus = async (req, res) => {
  *   // AI service calls POST /api/webhooks/ai-result when done
  * =============================================================================
  */
-async function processWithAI(answerId, filePath) {
+/**
+ * Map Python gateway /api/ai/analyze-answer response to orchestrator shape.
+ */
+function mapComprehensiveToAnalysis(comp) {
+    const transcription = comp.transcription || '';
+    const nlpScore = Math.round(Number(comp.nlp_score) || 0);
+    const voiceScore = Math.round(Number(comp.voice_score) || 0);
+    const voice = comp.voice_analysis || {};
+    const cc = voice.clarity_confidence || {};
+    const tone = voice.tone || {};
+    const hs = voice.hesitation_stress || {};
+
+    return {
+        nlp: {
+            score: nlpScore,
+            metrics: {
+                relevance: nlpScore,
+                coherence: nlpScore,
+                wordCount: transcription.split(/\s+/).filter(Boolean).length,
+                transcription,
+            },
+            feedback: {
+                summary: comp.nlp_feedback || '',
+                strengths: nlpScore >= 70 ? ['Solid alignment with the topic'] : ['You addressed the question'],
+                improvements:
+                    nlpScore < 70
+                        ? ['Add examples and deeper detail where relevant']
+                        : ['Polish clarity and structure'],
+            },
+        },
+        vocal: {
+            score: voiceScore,
+            metrics: {
+                confidence: Math.round(Number(cc.confidence_score) || voiceScore),
+                clarity: Math.round(Number(cc.clarity_score) || voiceScore),
+                tone: Math.round(Number(tone.tone_score) || voiceScore),
+                pace: Math.round(100 - Number(hs.hesitation_score || 0)),
+                stress: Math.round(Number(hs.stress_score) || 0),
+            },
+            feedback: {
+                summary: 'Vocal delivery analyzed.',
+                strengths: [],
+                improvements: [],
+            },
+        },
+        facial: null,
+        overallScore: Math.round(Number(comp.overall_score) || 0),
+        timestamp: new Date().toISOString(),
+        _geminiFeedback: comp.gemini_feedback || '',
+    };
+}
+
+function hasMeaningfulSpeech(text) {
+    const cleaned = String(text || '').trim();
+    if (!cleaned) return false;
+    const tokens = cleaned.split(/\s+/).filter(Boolean);
+    if (tokens.length < 3) return false;
+    // Filter obvious punctuation/noise-only transcripts.
+    const alphaChars = cleaned.replace(/[^a-zA-Z]/g, '').length;
+    return alphaChars >= 6;
+}
+
+async function tryCompileIfSessionReady(interviewId, userId) {
     try {
-        // Mark as processing
+        const session = await InterviewSession.findById(interviewId);
+        if (!session || session.status !== SESSION_STATUS.COMPLETED) return;
+
+        const answers = await Answer.find({ interviewId });
+        if (!answers.length) return;
+
+        const stillRunning = answers.some(
+            a => a.processingStatus === 'pending' || a.processingStatus === 'processing'
+        );
+        if (stillRunning) return;
+
+        const { compileInterviewResult } = require('../routes/resultRoutes');
+        await compileInterviewResult(interviewId, userId);
+    } catch (e) {
+        logger.warn(`tryCompileIfSessionReady: ${e.message}`);
+    }
+}
+
+async function processWithAI(answerId, audioFilePath, videoFilePath) {
+    try {
         await Answer.findByIdAndUpdate(answerId, { processingStatus: 'processing' });
 
         const aiServices = require('../services');
+        const aiServiceClient = require('../services/aiServiceClient');
         const Question = require('../models/Question');
 
-        // Get answer and question details
         const answer = await Answer.findById(answerId);
         if (!answer) throw new Error('Answer not found');
 
         const question = await Question.findById(answer.questionId);
-        
-        // -----------------------------------------------------------------------
-        // Run unified AI analysis (STT + NLP + Voice + Facial)
-        // -----------------------------------------------------------------------
-        const analysis = await aiServices.analyzeAnswer({
-            text: answer.answerText, // Could be empty if only audio provided
-            reference: question?.expectedAnswer || '',
-            audioUrl: filePath,
-            videoUrl: filePath, // Assuming video recorded in same file or handle separately
-            filename: answer.audioFileName,
-        });
+        const questionText = question?.questionText || '';
+        // If we don't have an expected answer in DB, use the question text as a reference
+        // so NLP evaluation still produces a non-zero score via the AI gateway.
+        const reference = question?.expectedAnswer || questionText;
 
-        // -----------------------------------------------------------------------
-        // Update answer with Results
-        // -----------------------------------------------------------------------
+        const audioBuffer = await fs.readFile(audioFilePath);
+        const videoBuffer = videoFilePath ? await fs.readFile(videoFilePath) : null;
+        let analysis = null;
+
+        try {
+            const comp = await aiServiceClient.analyzeAnswerComprehensive(
+                audioBuffer,
+                questionText,
+                reference,
+                answer.audioFileName || 'recording.webm'
+            );
+            if (comp && comp.status === 'success') {
+                // If STT produced nothing, treat this as a failed comprehensive run
+                // so we fall back to the slower pipeline that includes Whisper again.
+                if (!hasMeaningfulSpeech(comp.transcription || '')) {
+                    logger.warn(`Comprehensive AI returned empty transcription for answer ${answerId}`);
+                } else {
+                    analysis = mapComprehensiveToAnalysis(comp);
+                }
+            }
+        } catch (err) {
+            logger.warn(`Comprehensive AI pipeline failed: ${err.message}`);
+        }
+
+        if (!analysis) {
+            let text = answer.answerText || '';
+            if (!text.trim()) {
+                try {
+                    const tr = await aiServiceClient.transcribeAudio(
+                        audioBuffer,
+                        answer.audioFileName || 'recording.webm'
+                    );
+                    if (tr && tr.status === 'success' && tr.text) text = tr.text;
+                } catch (err) {
+                    logger.warn(`STT fallback failed: ${err.message}`);
+                }
+            }
+
+            // Reject silent/empty answers: do not fabricate NLP/voice scores.
+            if (!hasMeaningfulSpeech(text)) {
+                await Answer.findByIdAndUpdate(answerId, {
+                    transcription: '',
+                    evaluationScore: 0,
+                    feedback: 'No speech detected in your recording. Please answer by speaking clearly and try again.',
+                    processingStatus: 'completed',
+                    processedAt: new Date(),
+                });
+                await tryCompileIfSessionReady(answer.interviewId, answer.userId);
+                await safeDeleteFile(audioFilePath);
+                if (videoFilePath) await safeDeleteFile(videoFilePath);
+                return;
+            }
+
+            analysis = await aiServices.analyzeAnswer({
+                text,
+                reference,
+                audioUrl: audioFilePath,
+                filename: answer.audioFileName,
+                videoUrl: videoFilePath,
+                videoBuffer: videoBuffer || undefined,
+            });
+
+            if (text) {
+                analysis.nlp = analysis.nlp || { metrics: {}, feedback: {} };
+                analysis.nlp.metrics = { ...(analysis.nlp.metrics || {}), transcription: text };
+            }
+        }
+
+        // Face analysis (separate, because the comprehensive endpoint is STT+NLP+Voice)
+        if (videoBuffer && !analysis.facial) {
+            try {
+                const faceRes = await aiServices.facialService.analyzeFacial({
+                    videoBuffer,
+                    filename: 'video.webm',
+                });
+                analysis.facial = faceRes;
+            } catch (err) {
+                logger.warn(`Facial analysis failed for answer ${answerId}: ${err.message}`);
+                analysis.facial = analysis.facial || null;
+            }
+        }
+
+        const transcription =
+            analysis.nlp?.metrics?.transcription ||
+            analysis.vocal?.transcription ||
+            answer.answerText ||
+            '';
+
+        let feedbackText = _generateFeedback(analysis);
+        if (analysis._geminiFeedback) {
+            feedbackText = [analysis._geminiFeedback, feedbackText].filter(Boolean).join('\n\n');
+        }
+
         await Answer.findByIdAndUpdate(answerId, {
-            transcription: analysis.nlp?.metrics?.transcription || analysis.vocal?.transcription || '',
+            transcription,
             evaluationScore: analysis.overallScore,
-            feedback: _generateFeedback(analysis),
+            feedback: feedbackText,
             processingStatus: 'completed',
             processedAt: new Date(),
         });
 
-        // Persist detailed AnswerAnalysis record for the results page
-        await aiServices.saveAnalysis(
-            answerId,
-            answer.interviewId,
-            answer.userId,
-            analysis
-        );
+        await aiServices.saveAnalysis(answerId, answer.interviewId, answer.userId, analysis);
 
         logger.info(`AI processing completed for answer ${answerId}, score: ${analysis.overallScore}`);
 
-        // Clean up the temporary audio file after processing
-        await safeDeleteFile(filePath);
-
+        await tryCompileIfSessionReady(answer.interviewId, answer.userId);
+        await safeDeleteFile(audioFilePath);
+        if (videoFilePath) await safeDeleteFile(videoFilePath);
     } catch (error) {
         logger.error(`AI processing error for answer ${answerId}: ${error.message}`);
 
-        // Mark as failed so the frontend can show an error or allow retry
         await Answer.findByIdAndUpdate(answerId, {
             processingStatus: 'failed',
         }).catch(err => logger.error(`Failed to update answer status: ${err.message}`));
+
+        // Best-effort cleanup even when AI processing fails.
+        await safeDeleteFile(audioFilePath);
+        if (videoFilePath) await safeDeleteFile(videoFilePath);
     }
 }
 

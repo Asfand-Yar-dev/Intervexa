@@ -136,6 +136,7 @@ interface RequestOptions {
   body?: unknown;
   headers?: Record<string, string>;
   requireAuth?: boolean;
+  timeoutMs?: number;
 }
 
 /**
@@ -150,6 +151,7 @@ async function apiRequest<T>(
     body,
     headers = {},
     requireAuth = false,
+    timeoutMs = REQUEST_TIMEOUT,
   } = options;
 
   // Determine if body is FormData
@@ -194,7 +196,7 @@ async function apiRequest<T>(
   try {
     // Create timeout controller
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     config.signal = controller.signal;
 
     const response = await fetch(url, config);
@@ -383,16 +385,58 @@ export const authApi = {
 
 export const interviewApi = {
   /**
-   * Start a new interview session
+   * Start a new interview session (persists job context and generates session-linked questions via AI when gateway is up).
    */
-  async startSession(sessionType: string = 'technical'): Promise<{
+  async startSession(payload: {
+    session_type?: string;
+    jobTitle?: string;
+    skills?: string[];
+    jobDescription?: string;
+    difficulty?: string;
+  }): Promise<{
     success: boolean;
     message: string;
-    data: { session: InterviewSession };
+    data: {
+      session: InterviewSession;
+      questions?: { total: number; generatedWithAI: boolean };
+    };
   }> {
     return apiRequest(API_ENDPOINTS.INTERVIEWS.START, {
       method: 'POST',
-      body: { session_type: sessionType },
+      body: {
+        session_type: payload.session_type ?? 'technical',
+        jobTitle: payload.jobTitle,
+        skills: payload.skills,
+        jobDescription: payload.jobDescription,
+        difficulty: payload.difficulty,
+      },
+      requireAuth: true,
+      // Gemini generation can be slower during retries/quota windows.
+      timeoutMs: 150000,
+    });
+  },
+
+  /**
+   * Questions assigned to this interview (AI + bank), ordered.
+   */
+  async getSessionQuestions(sessionId: string): Promise<{
+    success: boolean;
+    data: {
+      sessionId: string;
+      totalQuestions: number;
+      questions: Array<{
+        id: string;
+        order: number;
+        status: string;
+        questionText: string;
+        category: string;
+        difficulty: string;
+        skills?: string[];
+        timeLimit?: number;
+      }>;
+    };
+  }> {
+    return apiRequest(API_ENDPOINTS.INTERVIEWS.QUESTIONS(sessionId), {
       requireAuth: true,
     });
   },
@@ -463,6 +507,8 @@ export const interviewApi = {
       overallScore: number;
       totalQuestions: number;
       questionsAnswered: number;
+      /** False when no answer crossed the minimum scoring threshold (e.g. silence only). */
+      hasEvaluatedAnswers?: boolean;
       scores: {
         overall: number;
         confidence: number;
@@ -595,9 +641,12 @@ export const answersApi = {
       if (data.audio_blob) {
         formData.append('audio', data.audio_blob, 'recording.webm');
       }
+
+      // Optional: send a video clip for facial analysis.
+      if (data.video_blob) {
+        formData.append('video', data.video_blob, 'recording.webm');
+      }
       
-      // Note: Backend currently handles 'audio' field via upload.single('audio')
-      // in /api/interviews/:sessionId/answers
       return apiRequest(`/api/interviews/${data.session_id}/answers`, {
         method: 'POST',
         body: formData, // apiRequest will need to handle FormData

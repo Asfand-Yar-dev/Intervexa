@@ -1,7 +1,16 @@
 # =============================================================================
 # AI Gateway - Python Dependencies
 # =============================================================================
-# Install: pip install -r requirements.txt
+# Install:
+#   python -m pip install --upgrade pip setuptools wheel
+#   pip install -r requirements.txt
+#   pip install -r requirements-stt.txt --no-build-isolation
+#
+# Whisper is in requirements-stt.txt because pip's *isolated* build runs Whisper's
+# setup.py before pkg_resources is visible → use --no-build-isolation (Windows-safe).
+
+setuptools>=69.0.0,<82.0.0
+wheel
 
 # Web Framework
 flask==3.1.1
@@ -16,8 +25,7 @@ python-dotenv==1.1.0
 sentence-transformers==3.4.1
 scikit-learn==1.6.1
 
-# Speech-to-Text (Whisper)
-openai-whisper==20240930
+# Speech-to-Text (Whisper) → see requirements-stt.txt
 
 # Voice Analysis (Wav2Vec2 + librosa)
 transformers==4.48.3

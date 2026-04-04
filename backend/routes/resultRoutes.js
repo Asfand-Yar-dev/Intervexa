@@ -217,56 +217,82 @@ async function compileInterviewResult(interviewId, userId) {
     const AnswerAnalysis = require('../models/AnswerAnalysis');
     const logger = require('../config/logger');
 
-    // Get all answers for this interview
     const answers = await Answer.find({ interviewId, userId });
-    const answerIds = answers.map(a => a._id);
-
-    // Get all analyses
-    const analyses = await AnswerAnalysis.find({ answerId: { $in: answerIds } });
-
-    if (analyses.length === 0) {
-        logger.warn(`No analyses found for interview ${interviewId}, skipping result compilation`);
+    if (!answers.length) {
+        logger.warn(`No answers for interview ${interviewId}, skipping result compilation`);
         return null;
     }
 
-    // Compute averages
-    const avg = (arr, field) => {
-        const vals = arr.map(a => a[field]).filter(v => v != null);
-        return vals.length > 0 ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
+    const answerIds = answers.map((a) => a._id);
+    const analyses = await AnswerAnalysis.find({ answerId: { $in: answerIds } });
+    const byAnswerId = new Map(answers.map((a) => [a._id.toString(), a]));
+
+    const scoredPairs = analyses
+        .map((an) => ({ analysis: an, answer: byAnswerId.get(an.answerId.toString()) }))
+        .filter(
+            ({ answer }) =>
+                answer &&
+                answer.processingStatus === 'completed' &&
+                (answer.evaluationScore ?? 0) > 0
+        );
+
+    const completedAnswers = answers.filter((a) => a.processingStatus === 'completed');
+    const overallFromEval =
+        completedAnswers.length > 0
+            ? Math.round(
+                  completedAnswers.reduce((s, a) => s + (a.evaluationScore ?? 0), 0) /
+                      completedAnswers.length
+              )
+            : 0;
+
+    const avgField = (field) => {
+        if (!scoredPairs.length) return 0;
+        const vals = scoredPairs
+            .map((p) => p.analysis[field])
+            .filter((v) => v != null && !Number.isNaN(Number(v)));
+        if (!vals.length) return 0;
+        return Math.round(vals.reduce((s, v) => s + Number(v), 0) / vals.length);
     };
 
-    const overallScore = avg(analyses, 'confidenceScore'); // Could be weighted average
-    const confidenceScore = avg(analyses, 'confidenceScore');
-    const clarityScore = avg(analyses, 'clarityScore');
-    const technicalScore = avg(analyses, 'technicalScore');
-    const bodyLanguageScore = avg(analyses, 'bodyLanguageScore');
-    const voiceToneScore = avg(analyses, 'voiceToneScore');
+    const confidenceScore = avgField('confidenceScore');
+    const clarityScore = avgField('clarityScore');
+    const technicalScore = avgField('technicalScore');
+    const bodyLanguageScore = avgField('bodyLanguageScore');
+    const voiceToneScore = avgField('voiceToneScore');
 
-    // Collect all strengths/improvements
-    const strengths = [...new Set(analyses.flatMap(a => a.strengths || []))].slice(0, 5);
-    const improvements = [...new Set(analyses.flatMap(a => a.improvements || []))].slice(0, 5);
+    const strengths = [...new Set(scoredPairs.flatMap((p) => p.analysis.strengths || []))].slice(0, 5);
+    const improvements = [...new Set(scoredPairs.flatMap((p) => p.analysis.improvements || []))].slice(0, 5);
 
-    // Upsert the Result
+    const label =
+        overallFromEval >= 75 ? 'Strong' : overallFromEval >= 50 ? 'Average' : 'Needs improvement';
+    const summary = scoredPairs.length
+        ? `Interview completed with ${scoredPairs.length} fully evaluated answer(s). Overall: ${label}.`
+        : 'Interview completed, but no answers met the minimum bar for scoring (speak clearly for a few seconds per question).';
+
     const result = await Result.findOneAndUpdate(
         { interviewId },
         {
             interviewId,
             userId,
-            overallScore: Math.round((confidenceScore + clarityScore + technicalScore) / 3),
+            overallScore: overallFromEval,
             confidenceScore,
             clarityScore,
             technicalScore,
             bodyLanguageScore,
             voiceToneScore,
             totalQuestions: answers.length,
-            questionsAnswered: analyses.length,
-            strengths,
-            improvements,
-            summary: `Interview completed with ${analyses.length} analyzed answers. Overall performance: ${overallScore >= 75 ? 'Strong' : overallScore >= 50 ? 'Average' : 'Needs improvement'}.`,
+            questionsAnswered: completedAnswers.length,
+            strengths: strengths.length ? strengths : ['Submit spoken answers for personalized strengths'],
+            improvements: improvements.length
+                ? improvements
+                : ['Practice speaking full answers before retrying'],
+            summary,
             generatedAt: new Date(),
         },
         { upsert: true, new: true }
     );
+
+    await InterviewSession.findByIdAndUpdate(interviewId, { overall_score: overallFromEval }).catch(() => {});
 
     logger.info(`Result compiled for interview ${interviewId}: score=${result.overallScore}`);
     return result;

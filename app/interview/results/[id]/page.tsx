@@ -8,7 +8,7 @@ import { ScoreCard } from "@/components/results/score-card"
 import { FeedbackSection } from "@/components/results/feedback-section"
 import { Button } from "@/components/ui/button"
 import { motion } from "framer-motion"
-import { ArrowLeft, Download, Share2, RotateCcw, Loader2, Trophy, TrendingUp } from "lucide-react"
+import { ArrowLeft, Download, Share2, RotateCcw, Loader2, Trophy } from "lucide-react"
 import { interviewApi } from "@/lib/api"
 import { useAuth } from "@/hooks/use-auth"
 
@@ -23,6 +23,8 @@ interface InterviewFeedback {
   strengths: string[];
   improvements: string[];
   detailedFeedback: string;
+  questionsAnswered: number;
+  hasEvaluatedAnswers: boolean;
 }
 
 export default function ResultsPage() {
@@ -39,7 +41,6 @@ export default function ResultsPage() {
         // Fetch results from backend
         const response = await interviewApi.getResults(sessionId)
         if (response.success && response.data) {
-          // Map backend response to the expected feedback format
           setFeedback({
             overallScore: response.data.overallScore,
             confidenceScore: response.data.scores.confidence,
@@ -50,6 +51,8 @@ export default function ResultsPage() {
             strengths: response.data.strengths,
             improvements: response.data.improvements,
             detailedFeedback: response.data.summary,
+            questionsAnswered: response.data.questionsAnswered ?? 0,
+            hasEvaluatedAnswers: response.data.hasEvaluatedAnswers ?? true,
           })
         }
       } catch (error) {
@@ -104,6 +107,9 @@ export default function ResultsPage() {
     voiceTone: "oklch(0.65 0.22 40)",
   }
 
+  const showMeaningfulScores =
+    feedback.questionsAnswered > 0 && feedback.hasEvaluatedAnswers
+
   return (
     <DashboardLayout>
       <div className="max-w-5xl mx-auto space-y-8">
@@ -130,7 +136,11 @@ export default function ResultsPage() {
           </div>
           <h1 className="text-3xl font-bold text-foreground mb-2">Interview Complete!</h1>
           <p className="text-muted-foreground max-w-md mx-auto">
-            Great job completing your practice session. Here's your detailed performance analysis.
+            {showMeaningfulScores
+              ? "Here's your performance breakdown for this session."
+              : feedback.questionsAnswered === 0
+                ? "No answers were recorded, so there is no score yet."
+                : "Your answers did not include enough speech for a full evaluation. Try again with clearer audio."}
           </p>
         </motion.div>
 
@@ -149,40 +159,34 @@ export default function ResultsPage() {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.5, delay: 0.3 }}
             >
-              {feedback.overallScore}
+              {showMeaningfulScores ? feedback.overallScore : "—"}
             </motion.span>
-            <span className="text-2xl text-muted-foreground">/100</span>
-          </div>
-          <div className="flex items-center justify-center gap-2 mt-3 text-success">
-            <TrendingUp className="h-4 w-4" />
-            <span className="text-sm font-medium">+5 from last session</span>
+            {showMeaningfulScores ? (
+              <span className="text-2xl text-muted-foreground">/100</span>
+            ) : null}
           </div>
         </motion.div>
 
         {/* Score Cards Grid */}
-        <div className="grid gap-4 grid-cols-2 lg:grid-cols-3">
-          <ScoreCard label="Confidence" score={feedback.confidenceScore} color={scoreColors.confidence} delay={0.2} />
-          <ScoreCard label="Clarity" score={feedback.clarityScore} color={scoreColors.clarity} delay={0.25} />
-          <ScoreCard label="Technical" score={feedback.technicalScore} color={scoreColors.technical} delay={0.3} />
-          <ScoreCard
-            label="Body Language"
-            score={feedback.bodyLanguageScore}
-            color={scoreColors.bodyLanguage}
-            delay={0.35}
-          />
-          <ScoreCard label="Voice & Tone" score={feedback.voiceToneScore} color={scoreColors.voiceTone} delay={0.4} />
-          <div className="rounded-2xl border border-border/50 bg-card p-6 flex flex-col items-center justify-center">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.4, delay: 0.45 }}
-              className="text-center"
-            >
-              <p className="text-3xl font-bold text-card-foreground mb-1">85%</p>
-              <p className="text-sm text-muted-foreground">Better than average</p>
-            </motion.div>
+        {showMeaningfulScores ? (
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-3">
+            <ScoreCard label="Confidence" score={feedback.confidenceScore} color={scoreColors.confidence} delay={0.2} />
+            <ScoreCard label="Clarity" score={feedback.clarityScore} color={scoreColors.clarity} delay={0.25} />
+            <ScoreCard label="Technical" score={feedback.technicalScore} color={scoreColors.technical} delay={0.3} />
+            <ScoreCard
+              label="Body Language"
+              score={feedback.bodyLanguageScore}
+              color={scoreColors.bodyLanguage}
+              delay={0.35}
+            />
+            <ScoreCard label="Voice & Tone" score={feedback.voiceToneScore} color={scoreColors.voiceTone} delay={0.4} />
           </div>
-        </div>
+        ) : (
+          <div className="rounded-2xl border border-border/50 bg-card/80 p-8 text-center text-muted-foreground text-sm max-w-xl mx-auto">
+            Dimension scores (confidence, clarity, technical, voice, body language) appear after at least one answer is
+            transcribed and scored. Finish a session with spoken responses to see the full breakdown.
+          </div>
+        )}
 
         {/* Feedback Sections */}
         <FeedbackSection

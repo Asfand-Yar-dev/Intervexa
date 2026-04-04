@@ -1,0 +1,8 @@
+# OpenAI Whisper — install AFTER requirements.txt so torch is already present.
+#
+# Pip's isolated build breaks Whisper's setup.py on Windows (pkg_resources).
+# Always use --no-build-isolation:
+#
+#   pip install -r requirements-stt.txt --no-build-isolation
+
+openai-whisper==20240930

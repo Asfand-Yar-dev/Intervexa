@@ -81,6 +81,24 @@ const startInterviewValidation = [
     .trim()
     .isString().withMessage('Session type must be a string'),
 
+  body('jobTitle')
+    .optional()
+    .trim()
+    .isString(),
+
+  body('skills')
+    .optional()
+    .isArray(),
+
+  body('jobDescription')
+    .optional()
+    .trim()
+    .isString(),
+
+  body('difficulty')
+    .optional()
+    .isIn(['easy', 'medium', 'hard']),
+
   validate
 ];
 

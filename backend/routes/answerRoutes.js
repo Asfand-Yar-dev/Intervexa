@@ -65,7 +65,7 @@ router.get('/user/my-answers', authenticate, asyncHandler(async (req, res) => {
  * @desc    Submit a text-based answer for a question
  * @access  Private
  */
-router.post('/submit', authenticate, submitAnswerValidation, asyncHandler(async (req, res) => {
+router.post('/submit', authenticate, ...submitAnswerValidation, asyncHandler(async (req, res) => {
   const { questionId, interviewId, answerText, audioUrl, videoUrl } = req.body;
 
   // Verify the session exists and belongs to the user

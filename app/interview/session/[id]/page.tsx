@@ -1,24 +1,31 @@
-"use client"
+"use client";
 
-import { useState, useEffect, useRef, useCallback } from "react"
-import { useRouter, useParams } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { motion, AnimatePresence } from "framer-motion"
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter, useParams } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Mic,
   MicOff,
   Video,
   VideoOff,
+  Volume2,
   ArrowRight,
   Loader2,
   Clock,
   AlertCircle,
   CheckCircle,
   Sparkles,
-} from "lucide-react"
-import { questionsApi, answersApi, interviewApi, type Question } from "@/lib/api"
-import { useAuth } from "@/hooks/use-auth"
-import { toast } from "sonner"
+} from "lucide-react";
+import {
+  answersApi,
+  interviewApi,
+  type Question,
+} from "@/lib/api";
+import { useAuth } from "@/hooks/use-auth";
+import { toast } from "sonner";
 
 // Map backend Question to frontend InterviewQuestion format
 interface InterviewQuestion {
@@ -26,260 +33,393 @@ interface InterviewQuestion {
   question: string;
   category: string;
   difficulty: "easy" | "medium" | "hard";
-  timeLimit: number;
 }
 
-function mapBackendQuestion(q: Question): InterviewQuestion {
+function mapBackendQuestion(q: any): InterviewQuestion {
+  const difficulty = (String(q.difficulty || "medium").toLowerCase() === "easy"
+    ? "easy"
+    : String(q.difficulty || "medium").toLowerCase() === "hard"
+      ? "hard"
+      : "medium") as "easy" | "medium" | "hard";
+
   return {
-    id: q._id,
-    question: q.questionText,
-    category: q.category,
-    difficulty: q.difficulty.toLowerCase() as "easy" | "medium" | "hard",
-    timeLimit: 120, // Default 2 minutes
+    id: String(q.id || q._id),
+    question: String(q.questionText || q.question || ""),
+    category: String(q.category || ""),
+    difficulty,
   };
 }
 
 export default function InterviewSessionPage() {
-  const router = useRouter()
-  const params = useParams()
-  const sessionId = params.id as string
+  const router = useRouter();
+  const params = useParams();
+  const sessionId = params.id as string;
   const { isAuthenticated, isLoading: authLoading } = useAuth();
 
-  const [questions, setQuestions] = useState<InterviewQuestion[]>([])
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isRecording, setIsRecording] = useState(false)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [isCameraOn, setIsCameraOn] = useState(true)
-  const [isMicOn, setIsMicOn] = useState(true)
-  const [timeElapsed, setTimeElapsed] = useState(0)
-  const [showTip, setShowTip] = useState(true)
-  const [permissionError, setPermissionError] = useState(false)
+  const [questions, setQuestions] = useState<InterviewQuestion[]>([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isCameraOn, setIsCameraOn] = useState(true);
+  const [isMicOn, setIsMicOn] = useState(true);
+  const [timeElapsed, setTimeElapsed] = useState(0);
+  const [showTip, setShowTip] = useState(true);
+  const [permissionError, setPermissionError] = useState(false);
+  const [speakQuestionsAloud, setSpeakQuestionsAloud] = useState(false);
 
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const videoRecorderRef = useRef<MediaRecorder | null>(null);
+  const videoChunksRef = useRef<Blob[]>([]);
 
-  const currentQuestion = questions[currentQuestionIndex]
-  const progress = questions.length > 0 ? ((currentQuestionIndex + 1) / questions.length) * 100 : 0
+  const currentQuestion = questions[currentQuestionIndex];
+  const progress =
+    questions.length > 0
+      ? ((currentQuestionIndex + 1) / questions.length) * 100
+      : 0;
 
   // Initialize camera and questions
   useEffect(() => {
     async function init() {
+      // 1) Load Gemini-assigned questions for THIS interview session
       try {
-        // Load setup metadata from sessionStorage
-        const setupStr = sessionStorage.getItem('interviewSetup')
-        const setup = setupStr ? JSON.parse(setupStr) : null
-        
-        // Load questions from backend
-        // Use setup metadata if available to filter questions
-        const response = await questionsApi.getRandom(5, setup ? {
-          category: setup.sessionType !== 'mixed' ? setup.sessionType : undefined
-          // We can add more filters here as the backend supports them
-        } : undefined)
-
-        if (response.success && response.data && response.data.length > 0) {
-          const mappedQuestions = response.data.map(mapBackendQuestion)
-          setQuestions(mappedQuestions)
-        } else {
-          throw new Error("Failed to load questions or no questions available")
+        const qRes = await interviewApi.getSessionQuestions(sessionId);
+        if (!qRes.success || !qRes.data?.questions?.length) {
+          throw new Error("No questions were assigned to this interview.");
         }
 
-        // Initialize camera
+        const mappedQuestions = [...qRes.data.questions]
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          .map(mapBackendQuestion);
+
+        setQuestions(mappedQuestions);
+      } catch (error) {
+        console.error("Failed to load interview questions:", error);
+        toast.error(
+          error instanceof Error ? error.message : "Failed to load interview questions"
+        );
+        setIsLoading(false);
+        router.push("/interview/setup");
+        return;
+      }
+
+      // 2) Initialize camera + microphone (separate from question loading)
+      try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: true,
-        })
-        streamRef.current = stream
+        });
+        streamRef.current = stream;
         if (videoRef.current) {
-          videoRef.current.srcObject = stream
+          videoRef.current.srcObject = stream;
         }
       } catch (error) {
-        console.error("Failed to initialize:", error)
-        setPermissionError(true)
+        console.error("Failed to initialize camera/mic:", error);
+        setPermissionError(true);
       } finally {
-        setIsLoading(false)
+        setIsLoading(false);
       }
     }
-    init()
+    init();
 
     return () => {
       // Cleanup
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop()
+      if (
+        mediaRecorderRef.current &&
+        mediaRecorderRef.current.state !== "inactive"
+      ) {
+        mediaRecorderRef.current.stop();
+      }
+      if (
+        videoRecorderRef.current &&
+        videoRecorderRef.current.state !== "inactive"
+      ) {
+        videoRecorderRef.current.stop();
       }
       if (timerRef.current) {
-        clearInterval(timerRef.current)
+        clearInterval(timerRef.current);
       }
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("interviewSetup");
+      if (raw) {
+        const o = JSON.parse(raw) as { speakQuestions?: boolean };
+        setSpeakQuestionsAloud(Boolean(o.speakQuestions));
+      }
+    } catch {
+      /* ignore */
     }
-  }, [sessionId])
+  }, []);
+
+  const speakQuestion = useCallback((text: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window) || !text.trim()) {
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  useEffect(() => {
+    if (!speakQuestionsAloud || !currentQuestion?.question) return;
+    speakQuestion(currentQuestion.question);
+  }, [currentQuestionIndex, currentQuestion?.question, speakQuestionsAloud, speakQuestion]);
+
+  const setSpeakPreference = useCallback((on: boolean) => {
+    setSpeakQuestionsAloud(on);
+    try {
+      const raw = sessionStorage.getItem("interviewSetup");
+      const o = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      sessionStorage.setItem(
+        "interviewSetup",
+        JSON.stringify({ ...o, speakQuestions: on })
+      );
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // Toggle camera
   const toggleCamera = useCallback(() => {
     if (streamRef.current) {
-      const videoTrack = streamRef.current.getVideoTracks()[0]
+      const videoTrack = streamRef.current.getVideoTracks()[0];
       if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled
-        setIsCameraOn(videoTrack.enabled)
+        videoTrack.enabled = !videoTrack.enabled;
+        setIsCameraOn(videoTrack.enabled);
       }
     }
-  }, [])
+  }, []);
 
   // Toggle mic
   const toggleMic = useCallback(() => {
     if (streamRef.current) {
-      const audioTrack = streamRef.current.getAudioTracks()[0]
+      const audioTrack = streamRef.current.getAudioTracks()[0];
       if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled
-        setIsMicOn(audioTrack.enabled)
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsMicOn(audioTrack.enabled);
       }
     }
-  }, [])
+  }, []);
 
   // Start recording
   const startRecording = () => {
     // Clear previous audio chunks
-    audioChunksRef.current = []
-    
-    // Create MediaRecorder from stream
+    audioChunksRef.current = [];
+    videoChunksRef.current = [];
+
+    // Create MediaRecorders from stream (audio-only + video-only)
     if (streamRef.current) {
-      // Extract only audio track from the stream (stream has both video + audio)
-      const audioTracks = streamRef.current.getAudioTracks()
+      const audioTracks = streamRef.current.getAudioTracks();
+      const videoTracks = streamRef.current.getVideoTracks();
+
       if (audioTracks.length === 0) {
-        console.error('No audio track available')
-        return
+        console.error("No audio track available");
+        toast.error("Microphone not available for recording.");
+        return;
       }
-      
-      // Create a new stream with only audio track
-      const audioStream = new MediaStream(audioTracks)
-      
-      // Try to find a supported MIME type
-      const mimeTypes = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/ogg;codecs=opus',
-        'audio/mp4',
-        'audio/mpeg',
-      ]
-      
-      let selectedMimeType: string | undefined
-      for (const mimeType of mimeTypes) {
+
+      const audioStream = new MediaStream(audioTracks);
+
+      // Audio MIME selection
+      const audioMimeTypes = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+        "audio/mpeg",
+      ];
+      let selectedAudioMimeType: string | undefined;
+      for (const mimeType of audioMimeTypes) {
         if (MediaRecorder.isTypeSupported(mimeType)) {
-          selectedMimeType = mimeType
-          break
+          selectedAudioMimeType = mimeType;
+          break;
         }
       }
-      
-      // Create MediaRecorder with audio-only stream and supported MIME type
-      const options = selectedMimeType ? { mimeType: selectedMimeType } : {}
-      const mediaRecorder = new MediaRecorder(audioStream, options)
-      
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data)
+
+      const audioOptions = selectedAudioMimeType
+        ? { mimeType: selectedAudioMimeType }
+        : {};
+      const audioRecorder = new MediaRecorder(audioStream, audioOptions);
+      audioRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      // Video is optional. If camera is off/disabled, still record audio answer.
+      let videoRecorder: MediaRecorder | null = null;
+      const activeVideoTrack = videoTracks.find((t) => t.enabled);
+      if (activeVideoTrack && isCameraOn) {
+        try {
+          const videoStream = new MediaStream([activeVideoTrack]);
+          const videoMimeTypes = [
+            "video/webm;codecs=vp9",
+            "video/webm;codecs=vp8",
+            "video/webm",
+          ];
+          let selectedVideoMimeType: string | undefined;
+          for (const mimeType of videoMimeTypes) {
+            if (MediaRecorder.isTypeSupported(mimeType)) {
+              selectedVideoMimeType = mimeType;
+              break;
+            }
+          }
+
+          const videoOptions = selectedVideoMimeType
+            ? { mimeType: selectedVideoMimeType }
+            : {};
+          videoRecorder = new MediaRecorder(videoStream, videoOptions);
+          videoRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) videoChunksRef.current.push(event.data);
+          };
+        } catch (error) {
+          console.warn("Video recorder could not start; continuing with audio-only.", error);
         }
       }
-      
-      mediaRecorderRef.current = mediaRecorder
-      mediaRecorder.start(1000) // Collect data every second
+
+      mediaRecorderRef.current = audioRecorder;
+      videoRecorderRef.current = videoRecorder;
+
+      // Start both recorders in parallel
+      audioRecorder.start(1000); // Collect data every second
+      if (videoRecorder) {
+        videoRecorder.start(1000);
+      }
     }
-    
-    setIsRecording(true)
-    setShowTip(false)
-    setTimeElapsed(0)
+
+    setIsRecording(true);
+    setShowTip(false);
+    setTimeElapsed(0);
     timerRef.current = setInterval(() => {
-      setTimeElapsed((prev) => prev + 1)
-    }, 1000)
-  }
+      setTimeElapsed((prev) => prev + 1);
+    }, 1000);
+  };
 
   // Stop recording and submit
   const stopRecording = async () => {
-    setIsRecording(false)
+    setIsRecording(false);
     if (timerRef.current) {
-      clearInterval(timerRef.current)
+      clearInterval(timerRef.current);
     }
 
-    // Stop MediaRecorder and create audio blob
-    let audioBlob: Blob | undefined
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop()
-      // Wait a moment for final data
-      await new Promise(resolve => setTimeout(resolve, 100))
-      if (audioChunksRef.current.length > 0) {
-        audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-      }
+    const audioRecorder = mediaRecorderRef.current;
+    const videoRecorder = videoRecorderRef.current;
+
+    const stopAndWait = (rec: MediaRecorder | null) =>
+      new Promise<void>((resolve) => {
+        if (!rec || rec.state === "inactive") return resolve();
+        rec.onstop = () => resolve();
+        rec.stop();
+      });
+
+    // Ensure blobs include final segments
+    await Promise.all([stopAndWait(audioRecorder), stopAndWait(videoRecorder)]);
+
+    let audioBlob: Blob | undefined;
+    let videoBlob: Blob | undefined;
+
+    if (audioChunksRef.current.length > 0) {
+      const mimeType = audioRecorder?.mimeType || "audio/webm";
+      audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
     }
 
-    setIsProcessing(true)
+    if (videoChunksRef.current.length > 0) {
+      const mimeType = videoRecorder?.mimeType || "video/webm";
+      videoBlob = new Blob(videoChunksRef.current, { type: mimeType });
+    }
+
+    if (!audioBlob || audioBlob.size < 1024) {
+      toast.error("Recorded audio is too short or empty. Please record again.");
+      setIsProcessing(false);
+      return;
+    }
+
+    // Face analysis is optional; if video is missing/empty we still submit audio.
+    if (!videoBlob || videoBlob.size < 2048) {
+      videoBlob = undefined;
+    }
+
+    setIsProcessing(true);
     try {
       // Submit answer to backend with actual audio recording
       await answersApi.submit({
         question_id: currentQuestion.id,
         session_id: sessionId,
         audio_blob: audioBlob,
+        video_blob: videoBlob,
         audio_duration: timeElapsed,
         answer_text: "", // Background AI will generate transcription
-      })
-      toast.success("Answer submitted!")
+      });
+      toast.success("Answer submitted!");
     } catch (error) {
-      console.error("Failed to submit answer:", error)
-      toast.error("Failed to submit answer")
+      console.error("Failed to submit answer:", error);
+      toast.error("Failed to submit answer");
     }
-    setIsProcessing(false)
-  }
+    setIsProcessing(false);
+  };
 
   // Move to next question
   const nextQuestion = () => {
     if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex((prev) => prev + 1)
-      setShowTip(true)
+      setCurrentQuestionIndex((prev) => prev + 1);
+      setShowTip(true);
     } else {
       // Interview complete
-      finishInterview()
+      finishInterview();
     }
-  }
+  };
 
   // Finish interview
   const finishInterview = async () => {
-    setIsLoading(true)
-    
+    setIsLoading(true);
+
     // Stop recording if active
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop()
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
     }
-    
+    if (videoRecorderRef.current && videoRecorderRef.current.state !== "inactive") {
+      videoRecorderRef.current.stop();
+    }
+
     // Stop camera and microphone streams
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current.getTracks().forEach((track) => track.stop());
     }
-    
+
     // Clear timer
     if (timerRef.current) {
-      clearInterval(timerRef.current)
+      clearInterval(timerRef.current);
     }
-    
+
     try {
       // End the interview session in the backend
-      await interviewApi.endSession(sessionId)
-      toast.success("Interview completed!")
-      router.push(`/interview/results/${sessionId}`)
+      await interviewApi.endSession(sessionId);
+      toast.success("Interview completed!");
+      router.push(`/interview/results/${sessionId}`);
     } catch (error) {
-      console.error("Failed to complete interview:", error)
-      toast.error("Failed to complete interview")
-      setIsLoading(false)
+      console.error("Failed to complete interview:", error);
+      toast.error("Failed to complete interview");
+      setIsLoading(false);
     }
-  }
+  };
 
   const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, "0")}`
-  }
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   // Show loading while checking auth or initializing
   if (authLoading || isLoading) {
@@ -290,7 +430,7 @@ export default function InterviewSessionPage() {
           <p className="text-muted-foreground">Preparing your interview...</p>
         </div>
       </div>
-    )
+    );
   }
 
   // Don't render if not authenticated
@@ -306,10 +446,13 @@ export default function InterviewSessionPage() {
             <VideoOff className="h-10 w-10 text-destructive" />
           </div>
           <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-foreground">Camera Access Required</h2>
+            <h2 className="text-2xl font-bold text-foreground">
+              Camera Access Required
+            </h2>
             <p className="text-muted-foreground">
-              We need access to your camera and microphone for the interview session. 
-              Please allow access in your browser settings and try again.
+              We need access to your camera and microphone for the interview
+              session. Please allow access in your browser settings and try
+              again.
             </p>
           </div>
           <div className="flex flex-col gap-3">
@@ -329,7 +472,7 @@ export default function InterviewSessionPage() {
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -341,7 +484,9 @@ export default function InterviewSessionPage() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent">
               <Sparkles className="h-4 w-4 text-accent-foreground" />
             </div>
-            <span className="font-semibold text-foreground">Interview Session</span>
+            <span className="font-semibold text-foreground">
+              Interview Session
+            </span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -403,6 +548,7 @@ export default function InterviewSessionPage() {
                   </motion.div>
                 )}
               </AnimatePresence>
+
             </div>
 
             {/* Camera Controls */}
@@ -413,7 +559,11 @@ export default function InterviewSessionPage() {
                 onClick={toggleCamera}
                 className={`bg-transparent border-border/50 ${!isCameraOn && "text-destructive"}`}
               >
-                {isCameraOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
+                {isCameraOn ? (
+                  <Video className="h-5 w-5" />
+                ) : (
+                  <VideoOff className="h-5 w-5" />
+                )}
               </Button>
               <Button
                 variant="outline"
@@ -421,7 +571,11 @@ export default function InterviewSessionPage() {
                 onClick={toggleMic}
                 className={`bg-transparent border-border/50 ${!isMicOn && "text-destructive"}`}
               >
-                {isMicOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+                {isMicOn ? (
+                  <Mic className="h-5 w-5" />
+                ) : (
+                  <MicOff className="h-5 w-5" />
+                )}
               </Button>
             </div>
           </motion.div>
@@ -463,6 +617,27 @@ export default function InterviewSessionPage() {
               <h2 className="text-xl font-semibold text-card-foreground leading-relaxed">
                 {currentQuestion?.question}
               </h2>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-secondary/30 px-3 py-2">
+                  <Switch
+                    id="speak-questions"
+                    checked={speakQuestionsAloud}
+                    onCheckedChange={setSpeakPreference}
+                  />
+                  <Label htmlFor="speak-questions" className="text-sm cursor-pointer">
+                    Read questions aloud automatically
+                  </Label>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => currentQuestion?.question && speakQuestion(currentQuestion.question)}
+                  className="bg-transparent border-border/50 shrink-0"
+                >
+                  <Volume2 className="mr-2 h-4 w-4" />
+                  Speak now
+                </Button>
+              </div>
             </div>
 
             {/* Tip */}
@@ -477,10 +652,13 @@ export default function InterviewSessionPage() {
                   <div className="flex gap-3">
                     <AlertCircle className="h-5 w-5 text-accent shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-sm font-medium text-foreground mb-1">Tip</p>
+                      <p className="text-sm font-medium text-foreground mb-1">
+                        Tip
+                      </p>
                       <p className="text-sm text-muted-foreground">
-                        Take a moment to gather your thoughts before answering. Structure your response with a clear
-                        beginning, middle, and end.
+                        Take a moment to gather your thoughts before answering.
+                        Structure your response with a clear beginning, middle,
+                        and end.
                       </p>
                     </div>
                   </div>
@@ -501,7 +679,11 @@ export default function InterviewSessionPage() {
               )}
 
               {isRecording && (
-                <Button onClick={stopRecording} variant="destructive" className="w-full h-14 text-lg font-semibold">
+                <Button
+                  onClick={stopRecording}
+                  variant="destructive"
+                  className="w-full h-14 text-lg font-semibold"
+                >
                   <CheckCircle className="mr-2 h-5 w-5" />
                   Stop & Submit Answer
                 </Button>
@@ -554,5 +736,5 @@ export default function InterviewSessionPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

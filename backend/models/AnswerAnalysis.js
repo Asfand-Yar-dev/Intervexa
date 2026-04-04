@@ -16,6 +16,16 @@ const answerAnalysisSchema = new mongoose.Schema({
         unique: true, // One analysis per answer
     },
 
+    // References
+    interviewId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'InterviewSession',
+    },
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+    },
+
     // === SCORE FIELDS (0-100) ===
     confidenceScore: {
         type: Number,
@@ -43,6 +53,12 @@ const answerAnalysisSchema = new mongoose.Schema({
         max: 100,
     },
 
+    overallScore: {
+        type: Number,
+        min: 0,
+        max: 100,
+    },
+
     // === FEEDBACK FIELDS ===
     keywords: [{
         type: String,
@@ -59,6 +75,23 @@ const answerAnalysisSchema = new mongoose.Schema({
     detailedFeedback: {
         type: String,
         trim: true,
+    },
+
+    // Raw payloads (for detailed report / debugging)
+    nlpData: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {},
+    },
+    vocalData: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {},
+    },
+    facialData: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {},
+    },
+    analyzedAt: {
+        type: Date,
     },
 }, {
     timestamps: true,

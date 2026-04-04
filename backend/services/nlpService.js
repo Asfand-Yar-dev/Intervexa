@@ -15,7 +15,10 @@ const logger = require('../config/logger');
 
 // AI Gateway base URL from environment
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-const USE_REAL_AI = process.env.USE_REAL_AI === 'true';
+/** When unset, real AI is ON. Set USE_REAL_AI=false to force heuristics only. */
+const USE_REAL_AI = !['false', '0', 'no'].includes(
+  String(process.env.USE_REAL_AI || 'true').toLowerCase()
+);
 
 /**
  * Analyze text content using NLP / Sentence-BERT
@@ -69,6 +72,22 @@ async function analyzeContent({ text, reference = '' }) {
     } catch (error) {
       logger.warn(`NLP AI service unreachable: ${error.message}. Using heuristic.`);
     }
+
+    // Real-AI mode: do not fabricate an NLP score when service is unavailable.
+    return {
+      score: 0,
+      metrics: {
+        relevance: 0,
+        completeness: 0,
+        coherence: 0,
+        wordCount: text.split(/\s+/).filter(Boolean).length,
+      },
+      feedback: {
+        summary: 'NLP evaluation service is unavailable right now.',
+        strengths: [],
+        improvements: ['Try again after AI services are fully loaded.'],
+      },
+    };
   }
 
   // -----------------------------------------------------------------------

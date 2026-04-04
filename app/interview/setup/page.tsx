@@ -9,11 +9,39 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
 import { motion, AnimatePresence } from "framer-motion"
-import { ArrowRight, X, Sparkles, Briefcase, Code, FileText, Loader2, ArrowLeft } from "lucide-react"
+import {
+  ArrowRight,
+  X,
+  Sparkles,
+  Briefcase,
+  Code,
+  FileText,
+  Loader2,
+  ArrowLeft,
+  ChevronDown,
+  Gauge,
+  Volume2,
+} from "lucide-react"
 import { useRequireAuth } from "@/contexts/auth-context"
-import { interviewApi, questionsApi } from "@/lib/api"
+import { interviewApi } from "@/lib/api"
 import { toast } from "sonner"
+
+const roleOptions = [
+  "Frontend Developer",
+  "Backend Developer",
+  "Full Stack Developer",
+  "Software Engineer",
+  "DevOps Engineer",
+  "Data Scientist",
+  "Machine Learning Engineer",
+  "Mobile App Developer",
+  "UI/UX Designer",
+  "Product Manager",
+  "QA Engineer",
+  "Cybersecurity Analyst",
+]
 
 const suggestedSkills = [
   "React",
@@ -36,6 +64,27 @@ const sessionTypes = [
   { id: "mixed", name: "Mixed Interview", description: "Combination of both" },
 ]
 
+const difficultyOptions = [
+  {
+    id: "easy" as const,
+    name: "Easy",
+    description: "Foundational prompts, warm-up pace",
+  },
+  {
+    id: "medium" as const,
+    name: "Medium",
+    description: "Typical interview depth",
+  },
+  {
+    id: "hard" as const,
+    name: "Hard",
+    description: "Senior-level depth and follow-ups",
+  },
+]
+
+const selectClass =
+  "h-12 w-full appearance-none rounded-xl border border-border/50 bg-secondary/50 pl-3 pr-10 text-base text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+
 export default function InterviewSetupPage() {
   const router = useRouter()
   const { isAuthenticated, isLoading: authLoading } = useRequireAuth()
@@ -45,8 +94,11 @@ export default function InterviewSetupPage() {
     skills: [] as string[],
     jobDescription: "",
     sessionType: "mixed",
+    difficulty: "medium" as "easy" | "medium" | "hard",
+    speakQuestions: false,
   })
   const [skillInput, setSkillInput] = useState("")
+  const [roleInput, setRoleInput] = useState("")
 
   const addSkill = (skill: string) => {
     const trimmed = skill.trim()
@@ -57,6 +109,13 @@ export default function InterviewSetupPage() {
       }))
     }
     setSkillInput("")
+  }
+
+  const handleCustomRoleApply = () => {
+    const customRole = roleInput.trim()
+    if (!customRole) return
+    setFormData((prev) => ({ ...prev, jobTitle: customRole }))
+    setRoleInput("")
   }
 
   const removeSkill = (skill: string) => {
@@ -80,16 +139,26 @@ export default function InterviewSetupPage() {
     setIsLoading(true)
     try {
       // Start interview session with backend
-      const response = await interviewApi.startSession(formData.sessionType)
-      
-      if (response.success && response.data.session) {
-        // Store session metadata in sessionStorage for the interview page
-        sessionStorage.setItem('interviewSetup', JSON.stringify({
-          jobTitle: formData.jobTitle,
-          skills: formData.skills,
-          jobDescription: formData.jobDescription,
-          sessionType: formData.sessionType,
-        }))
+      const response = await interviewApi.startSession({
+        session_type: formData.sessionType,
+        jobTitle: formData.jobTitle,
+        skills: formData.skills,
+        jobDescription: formData.jobDescription,
+        difficulty: formData.difficulty,
+      })
+
+      if (response.success && response.data?.session) {
+        sessionStorage.setItem(
+          "interviewSetup",
+          JSON.stringify({
+            jobTitle: formData.jobTitle,
+            skills: formData.skills,
+            jobDescription: formData.jobDescription,
+            sessionType: formData.sessionType,
+            difficulty: formData.difficulty,
+            speakQuestions: formData.speakQuestions,
+          })
+        )
         
         toast.success("Interview session started!", {
           description: "Get ready for your practice interview.",
@@ -101,8 +170,18 @@ export default function InterviewSetupPage() {
       }
     } catch (error) {
       console.error("Failed to start interview:", error)
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Please try again."
+
+      const friendly =
+        message.includes("Request timeout")
+          ? "Question generation is taking longer than usual. If this keeps happening, your Gemini API key may be rate-limited or out of quota."
+          : message
+
       toast.error("Failed to start interview", {
-        description: error instanceof Error ? error.message : "Please try again.",
+        description: friendly,
       })
       setIsLoading(false)
     }
@@ -194,96 +273,208 @@ export default function InterviewSetupPage() {
             </div>
           </div>
 
-          {/* Job Title */}
+          {/* Difficulty */}
           <div className="rounded-2xl border border-border/50 bg-card p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="rounded-xl bg-accent/10 p-2">
-                <Briefcase className="h-5 w-5 text-accent" />
+                <Gauge className="h-5 w-5 text-accent" />
               </div>
               <div>
-                <h2 className="font-semibold text-card-foreground">Target Role</h2>
-                <p className="text-sm text-muted-foreground">What position are you interviewing for?</p>
+                <h2 className="font-semibold text-card-foreground">Question difficulty</h2>
+                <p className="text-sm text-muted-foreground">How challenging should generated questions be?</p>
               </div>
             </div>
-            <Input
-              placeholder="e.g., Senior Frontend Developer"
-              value={formData.jobTitle}
-              onChange={(e) => setFormData((prev) => ({ ...prev, jobTitle: e.target.value }))}
-              className="h-12 bg-secondary/50 border-border/50 text-lg"
-            />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {difficultyOptions.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, difficulty: d.id }))}
+                  className={`p-4 rounded-xl border text-left transition-all ${
+                    formData.difficulty === d.id
+                      ? "border-accent bg-accent/10 ring-1 ring-accent/30"
+                      : "border-border/50 hover:border-accent/50"
+                  }`}
+                >
+                  <p className="font-medium text-foreground">{d.name}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{d.description}</p>
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Skills */}
-          <div className="rounded-2xl border border-border/50 bg-card p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="rounded-xl bg-accent/10 p-2">
-                <Code className="h-5 w-5 text-accent" />
+          {/* Role + skills (dashboard-style row) */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="rounded-2xl border border-border/50 bg-gradient-to-br from-card to-secondary/20 p-6 shadow-sm">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="rounded-xl bg-accent/10 p-2">
+                  <Briefcase className="h-5 w-5 text-accent" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-card-foreground">Target role</h2>
+                  <p className="text-sm text-muted-foreground">Pick a role or enter your own</p>
+                </div>
               </div>
-              <div>
-                <h2 className="font-semibold text-card-foreground">Key Skills</h2>
-                <p className="text-sm text-muted-foreground">
-                  Add skills you want to be tested on (at least 1 required)
-                </p>
+              <div className="space-y-3">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wider">Role</Label>
+                <div className="relative">
+                  <select
+                    value={formData.jobTitle}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, jobTitle: e.target.value }))
+                    }
+                    className={selectClass}
+                  >
+                    <option value="">Select a job role</option>
+                    {roleOptions.map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                </div>
+
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Custom role…"
+                    value={roleInput}
+                    onChange={(e) => setRoleInput(e.target.value)}
+                    className="h-11 rounded-xl bg-secondary/50 border-border/50"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleCustomRoleApply}
+                    className="h-11 rounded-xl shrink-0"
+                  >
+                    Apply
+                  </Button>
+                </div>
               </div>
             </div>
 
-            {/* Selected Skills */}
-            <AnimatePresence>
-              {formData.skills.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="flex flex-wrap gap-2 mb-4"
-                >
-                  {formData.skills.map((skill) => (
-                    <motion.span
-                      key={skill}
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.8 }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/20 text-accent text-sm font-medium"
-                    >
-                      {skill}
-                      <button
-                        type="button"
-                        onClick={() => removeSkill(skill)}
-                        className="hover:bg-accent/30 rounded p-0.5 transition-colors"
+            <div className="rounded-2xl border border-border/50 bg-gradient-to-br from-card to-secondary/20 p-6 shadow-sm">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="rounded-xl bg-accent/10 p-2">
+                  <Code className="h-5 w-5 text-accent" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-card-foreground">Key skills</h2>
+                  <p className="text-sm text-muted-foreground">At least one skill required</p>
+                </div>
+              </div>
+
+              <AnimatePresence>
+                {formData.skills.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="flex flex-wrap gap-2 mb-4"
+                  >
+                    {formData.skills.map((skill) => (
+                      <motion.span
+                        key={skill}
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/20 text-accent text-sm font-medium"
                       >
-                        <X className="h-3 w-3" />
+                        {skill}
+                        <button
+                          type="button"
+                          onClick={() => removeSkill(skill)}
+                          className="hover:bg-accent/30 rounded p-0.5 transition-colors"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </motion.span>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <div className="space-y-3 mb-4">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wider">Add from list</Label>
+                <div className="relative">
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      const value = e.target.value
+                      if (value) addSkill(value)
+                      e.currentTarget.value = ""
+                    }}
+                    className={selectClass}
+                  >
+                    <option value="">Choose a skill…</option>
+                    {suggestedSkills
+                      .filter((s) => !formData.skills.includes(s))
+                      .map((skill) => (
+                        <option key={skill} value={skill}>
+                          {skill}
+                        </option>
+                      ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                </div>
+
+                <Input
+                  placeholder="Custom skill — press Enter"
+                  value={skillInput}
+                  onChange={(e) => setSkillInput(e.target.value)}
+                  onKeyDown={handleSkillKeyDown}
+                  className="h-12 rounded-xl bg-secondary/50 border-border/50"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground uppercase tracking-wider">Quick add</Label>
+                <div className="flex flex-wrap gap-2">
+                  {suggestedSkills
+                    .filter((s) => !formData.skills.includes(s))
+                    .slice(0, 8)
+                    .map((skill) => (
+                      <button
+                        key={skill}
+                        type="button"
+                        onClick={() => addSkill(skill)}
+                        className="px-3 py-1.5 rounded-lg border border-border/50 text-sm text-muted-foreground hover:text-foreground hover:border-accent/50 transition-all"
+                      >
+                        + {skill}
                       </button>
-                    </motion.span>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
+                    ))}
+                </div>
+              </div>
+            </div>
+          </div>
 
-            {/* Skill Input */}
-            <Input
-              placeholder="Type a skill and press Enter..."
-              value={skillInput}
-              onChange={(e) => setSkillInput(e.target.value)}
-              onKeyDown={handleSkillKeyDown}
-              className="h-12 bg-secondary/50 border-border/50 mb-4"
-            />
-
-            {/* Suggested Skills */}
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground uppercase tracking-wider">Suggested Skills</Label>
-              <div className="flex flex-wrap gap-2">
-                {suggestedSkills
-                  .filter((s) => !formData.skills.includes(s))
-                  .slice(0, 8)
-                  .map((skill) => (
-                    <button
-                      key={skill}
-                      type="button"
-                      onClick={() => addSkill(skill)}
-                      className="px-3 py-1.5 rounded-lg border border-border/50 text-sm text-muted-foreground hover:text-foreground hover:border-accent/50 transition-all"
-                    >
-                      + {skill}
-                    </button>
-                  ))}
+          {/* Speak questions preference */}
+          <div className="rounded-2xl border border-border/50 bg-card p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="rounded-xl bg-accent/10 p-2 mt-0.5">
+                  <Volume2 className="h-5 w-5 text-accent" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-card-foreground">Read questions aloud</h2>
+                  <p className="text-sm text-muted-foreground max-w-xl">
+                    Turn on to hear each question with speech synthesis when the session starts. You can always use
+                    &quot;Speak now&quot; during the interview.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 sm:shrink-0">
+                <Label htmlFor="speak-setup" className="text-sm text-muted-foreground">
+                  Auto-speak
+                </Label>
+                <Switch
+                  id="speak-setup"
+                  checked={formData.speakQuestions}
+                  onCheckedChange={(v) =>
+                    setFormData((prev) => ({ ...prev, speakQuestions: v }))
+                  }
+                />
               </div>
             </div>
           </div>

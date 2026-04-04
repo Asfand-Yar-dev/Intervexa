@@ -238,6 +238,12 @@ const startServer = async () => {
     // Connect to Database
     await connectDB();
 
+    if (!process.env.JWT_SECRET || String(process.env.JWT_SECRET).includes('CHANGE_ME')) {
+      logger.warn(
+        'JWT_SECRET is missing or still set to a placeholder. Set a strong secret in .env or authentication will be insecure / unstable.'
+      );
+    }
+
     // Start listening
     const server = app.listen(PORT, () => {
       logger.info(` Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);

@@ -17,7 +17,9 @@ const path = require('path');
 const logger = require('../config/logger');
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-const USE_REAL_AI = process.env.USE_REAL_AI === 'true';
+const USE_REAL_AI = !['false', '0', 'no'].includes(
+  String(process.env.USE_REAL_AI || 'true').toLowerCase()
+);
 
 /**
  * Analyze facial expressions and body language from video.
@@ -29,6 +31,11 @@ const USE_REAL_AI = process.env.USE_REAL_AI === 'true';
  * @returns {Promise<Object>}            – { score, metrics, feedback }
  */
 async function analyzeFacial({ videoUrl, videoBuffer, filename = 'video.webm' }) {
+  // No video provided -> do not fabricate a body-language score.
+  if (!videoUrl && !videoBuffer) {
+    return null;
+  }
+
   // -----------------------------------------------------------------------
   // Try real AI service (if enabled and video data exists)
   // -----------------------------------------------------------------------
@@ -89,7 +96,7 @@ async function analyzeFacial({ videoUrl, videoBuffer, filename = 'video.webm' })
   }
 
   // -----------------------------------------------------------------------
-  // Fallback: Heuristic placeholder
+  // Fallback: conservative placeholder only when video exists but AI failed.
   // -----------------------------------------------------------------------
   return _heuristicFacial();
 }
@@ -131,25 +138,25 @@ function _facialImprovements(result) {
 // =========================================================================
 
 function _heuristicFacial() {
-  const baseScore = 60;
+  const baseScore = 0;
   return {
     score: baseScore,
     metrics: {
-      eyeContact: 60,
-      bodyLanguage: 65,
-      confidence: 62,
-      nervousness: 35,
-      facePresence: 80,
+      eyeContact: 0,
+      bodyLanguage: 0,
+      confidence: 0,
+      nervousness: 0,
+      facePresence: 0,
     },
     feedback: {
-      summary: 'Facial analysis processed with heuristic scoring. Enable AI for detailed analysis.',
+      summary: 'Facial analysis unavailable for this answer.',
       confidenceFeedback: '',
       nervousnessFeedback: '',
       engagementFeedback: '',
       eyeContactFeedback: '',
       overallFeedback: '',
-      strengths: ['Video was captured'],
-      improvements: ['Enable real AI for detailed facial feedback'],
+      strengths: [],
+      improvements: ['Ensure camera is on and AI gateway facial model is available.'],
     },
     emotionDistribution: {},
   };

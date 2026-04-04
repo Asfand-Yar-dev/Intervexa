@@ -30,6 +30,7 @@ export const API_ENDPOINTS = {
     END: (sessionId: string) => `/api/interviews/${sessionId}/end`,
     CANCEL: (sessionId: string) => `/api/interviews/${sessionId}/cancel`,
     GET_BY_ID: (sessionId: string) => `/api/interviews/${sessionId}`,
+    QUESTIONS: (sessionId: string) => `/api/interviews/${sessionId}/questions`,
     RESULTS: (sessionId: string) => `/api/interviews/${sessionId}/results`,
   },
   

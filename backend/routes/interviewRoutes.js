@@ -49,7 +49,7 @@ const router = express.Router();
  * @desc    Start a new interview session
  * @access  Private
  */
-router.post('/start', authenticate, startInterviewValidation, asyncHandler(async (req, res) => {
+router.post('/start', authenticate, ...startInterviewValidation, asyncHandler(async (req, res) => {
   const { session_type, jobTitle, skills, jobDescription, difficulty } = req.body;
 
   const session = new InterviewSession({
@@ -65,12 +65,25 @@ router.post('/start', authenticate, startInterviewValidation, asyncHandler(async
 
   await session.save();
 
+  let questionsMeta = { count: 0, usedAI: false };
+  const { populateInterviewQuestions } = require('../services/interviewQuestionService');
+  const sessionTypeLower = (session_type || 'general').toLowerCase();
+  // mixed interview uses 7 total questions; technical/behavioral use 5 total questions.
+  const targetCount = sessionTypeLower === 'mixed' ? 7 : 5;
+  questionsMeta = await populateInterviewQuestions(session, targetCount);
+
   logger.info(`Interview session started: ${session._id} for user: ${req.user.id}`);
 
   res.status(HTTP_STATUS.CREATED).json({
     success: true,
     message: 'Interview session started',
-    data: session
+    data: {
+      session,
+      questions: {
+        total: questionsMeta.count,
+        generatedWithAI: questionsMeta.usedAI,
+      },
+    },
   });
 }));
 
@@ -224,7 +237,15 @@ router.delete('/:sessionId', authenticate, asyncHandler(async (req, res) => {
  * @desc    Submit an audio answer for a specific question in this session
  * @access  Private
  */
-router.post('/:sessionId/answers', authenticate, upload.single('audio'), asyncHandler(submitAnswer));
+router.post(
+  '/:sessionId/answers',
+  authenticate,
+  upload.fields([
+    { name: 'audio', maxCount: 1 },
+    { name: 'video', maxCount: 1 },
+  ]),
+  asyncHandler(submitAnswer)
+);
 
 /**
  * @route   GET /api/interviews/:sessionId/answers
@@ -256,11 +277,34 @@ router.get('/:sessionId/questions', authenticate, asyncHandler(async (req, res) 
   }
 
   // Get questions linked to this interview via the join table
-  const interviewQuestions = await InterviewQuestion.find({
+  let interviewQuestions = await InterviewQuestion.find({
     interviewId: req.params.sessionId
   })
     .populate('questionId', 'questionText category difficulty skills timeLimit keywords')
     .sort({ order: 1 });
+
+  // Safety: if nothing exists yet (AI/bank failure), populate lazily.
+  if (!interviewQuestions || interviewQuestions.length === 0) {
+    const { populateInterviewQuestions } = require('../services/interviewQuestionService');
+    const sessionType = (session.session_type || 'general').toLowerCase();
+    const targetCount = sessionType === 'mixed' ? 7 : 5;
+
+    // Gemini-only: if this fails, surface the failure to the frontend.
+    await populateInterviewQuestions(session, targetCount);
+
+    interviewQuestions = await InterviewQuestion.find({
+      interviewId: req.params.sessionId
+    })
+      .populate('questionId', 'questionText category difficulty skills timeLimit keywords')
+      .sort({ order: 1 });
+  }
+
+  if (!interviewQuestions || interviewQuestions.length === 0) {
+    throw new ApiError(
+      503,
+      'AI question generation failed. Please restart from setup.'
+    );
+  }
 
   const questions = interviewQuestions.map(iq => ({
     id: iq.questionId?._id,
@@ -314,9 +358,14 @@ router.put('/:sessionId/end', authenticate, asyncHandler(async (req, res) => {
   // PHASE 5: Trigger Result Compilation
   // =========================================================================
   const { compileInterviewResult } = require('./resultRoutes');
-  compileInterviewResult(session._id, req.user.id).catch(err => {
-    logger.error(`Result compilation failed for session ${session._id}: ${err.message}`);
-  });
+  const runCompile = () =>
+    compileInterviewResult(session._id, req.user.id).catch(err => {
+      logger.error(`Result compilation failed for session ${session._id}: ${err.message}`);
+    });
+  runCompile();
+  // Answers may still be processing — retry compilation after AI pipeline finishes
+  setTimeout(runCompile, 45000);
+  setTimeout(runCompile, 120000);
   // =========================================================================
 
   logger.info(`Interview session ended: ${session._id}`);
@@ -365,7 +414,7 @@ router.put('/:sessionId/cancel', authenticate, asyncHandler(async (req, res) => 
  * @desc    Get interview sessions for a specific user (Admin only)
  * @access  Private
  */
-router.get('/user/:userId', authenticate, userIdParamValidation, asyncHandler(async (req, res) => {
+router.get('/user/:userId', authenticate, ...userIdParamValidation, asyncHandler(async (req, res) => {
   if (req.user.id !== req.params.userId && req.user.role !== 'admin') {
     throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Access denied');
   }
@@ -410,26 +459,50 @@ router.get('/:sessionId/results', authenticate, asyncHandler(async (req, res) =>
     .sort({ createdAt: 1 });
 
   const answeredQuestions = answers.length;
-  const totalScore = answers.reduce((sum, a) => sum + (a.evaluationScore || 0), 0);
-  const averageScore = answeredQuestions > 0 ? Math.round(totalScore / answeredQuestions) : 0;
+  const completedAnswers = answers.filter((a) => a.processingStatus === 'completed');
+  /** Average evaluation across completed attempts (includes zeros for silent / empty answers). */
+  const overallFromAnswers =
+    completedAnswers.length > 0
+      ? Math.round(
+          completedAnswers.reduce((sum, a) => sum + (a.evaluationScore ?? 0), 0) /
+            completedAnswers.length
+        )
+      : 0;
 
-  // Try to get detailed analysis scores from AnswerAnalysis model
-  const answerIds = answers.map(a => a._id);
+  const answerIds = answers.map((a) => a._id);
   const analyses = await AnswerAnalysis.find({ answerId: { $in: answerIds } });
 
-  // Calculate aggregated category scores from analyses (if available)
-  let confidenceAvg = 0, clarityAvg = 0, technicalAvg = 0, bodyLanguageAvg = 0, voiceToneAvg = 0;
-  if (analyses.length > 0) {
-    confidenceAvg = Math.round(analyses.reduce((s, a) => s + (a.confidenceScore || 0), 0) / analyses.length);
-    clarityAvg = Math.round(analyses.reduce((s, a) => s + (a.clarityScore || 0), 0) / analyses.length);
-    technicalAvg = Math.round(analyses.reduce((s, a) => s + (a.technicalScore || 0), 0) / analyses.length);
-    bodyLanguageAvg = Math.round(analyses.reduce((s, a) => s + (a.bodyLanguageScore || 0), 0) / analyses.length);
-    voiceToneAvg = Math.round(analyses.reduce((s, a) => s + (a.voiceToneScore || 0), 0) / analyses.length);
-  }
+  const answerById = new Map(answers.map((a) => [a._id.toString(), a]));
+  /** Only aggregate AI dimension scores when the answer was actually scored (>0). Avoids `0 || avg` inflation and junk analyses. */
+  const scoredAnalysisRows = analyses
+    .map((an) => ({
+      analysis: an,
+      answer: answerById.get(an.answerId.toString()),
+    }))
+    .filter(
+      ({ answer }) =>
+        answer &&
+        answer.processingStatus === 'completed' &&
+        (answer.evaluationScore ?? 0) > 0
+    );
 
-  // Collect all strengths and improvements from analyses
-  const allStrengths = [...new Set(analyses.flatMap(a => a.strengths || []))];
-  const allImprovements = [...new Set(analyses.flatMap(a => a.improvements || []))];
+  const avgDim = (field) => {
+    if (!scoredAnalysisRows.length) return 0;
+    const vals = scoredAnalysisRows
+      .map(({ analysis }) => analysis[field])
+      .filter((v) => v != null && !Number.isNaN(Number(v)));
+    if (!vals.length) return 0;
+    return Math.round(vals.reduce((s, v) => s + Number(v), 0) / vals.length);
+  };
+
+  const confidenceAvg = avgDim('confidenceScore');
+  const clarityAvg = avgDim('clarityScore');
+  const technicalAvg = avgDim('technicalScore');
+  const bodyLanguageAvg = avgDim('bodyLanguageScore');
+  const voiceToneAvg = avgDim('voiceToneScore');
+
+  const allStrengths = [...new Set(scoredAnalysisRows.flatMap(({ analysis: a }) => a.strengths || []))];
+  const allImprovements = [...new Set(scoredAnalysisRows.flatMap(({ analysis: a }) => a.improvements || []))];
 
   const questionFeedback = answers.map((answer, index) => {
     const analysis = analyses.find(a => a.answerId.toString() === answer._id.toString());
@@ -447,6 +520,8 @@ router.get('/:sessionId/results', authenticate, asyncHandler(async (req, res) =>
     };
   });
 
+  const hasScoredAnswers = scoredAnalysisRows.length > 0;
+
   const results = {
     sessionId: session._id,
     status: session.status,
@@ -456,23 +531,36 @@ router.get('/:sessionId/results', authenticate, asyncHandler(async (req, res) =>
     startedAt: session.started_at,
     completedAt: session.ended_at,
     duration: session.duration,
-    overallScore: session.overall_score || averageScore,
+    /** Prefer live average from answer rows; never substitute category averages into overall. */
+    overallScore: answeredQuestions > 0 ? overallFromAnswers : 0,
     totalQuestions: session.total_questions || answeredQuestions,
     questionsAnswered: answeredQuestions,
+    hasEvaluatedAnswers: hasScoredAnswers,
     scores: {
-      overall: session.overall_score || averageScore,
-      confidence: confidenceAvg || averageScore,
-      clarity: clarityAvg || averageScore,
-      technical: technicalAvg || averageScore,
-      bodyLanguage: bodyLanguageAvg || 0,
-      voiceTone: voiceToneAvg || 0,
+      overall: answeredQuestions > 0 ? overallFromAnswers : 0,
+      confidence: confidenceAvg,
+      clarity: clarityAvg,
+      technical: technicalAvg,
+      bodyLanguage: bodyLanguageAvg,
+      voiceTone: voiceToneAvg,
     },
     questionFeedback,
-    summary: answeredQuestions > 0
-      ? `You answered ${answeredQuestions} questions in this ${session.session_type || 'interview'} session. Keep practicing to improve your scores!`
-      : 'No answers recorded for this session.',
-    strengths: allStrengths.length > 0 ? allStrengths : ['Complete more interviews for personalized feedback'],
-    improvements: allImprovements.length > 0 ? allImprovements : ['Complete more interviews for personalized feedback'],
+    summary:
+      answeredQuestions === 0
+        ? 'No answers were recorded for this session. Complete and submit answers to receive a meaningful score.'
+        : !hasScoredAnswers
+          ? 'Your answers were recorded but did not contain enough speech for a full evaluation. Try again with clearer audio.'
+          : `You completed ${answeredQuestions} answer(s) in this ${session.session_type || 'interview'} session.`,
+    strengths: hasScoredAnswers
+      ? allStrengths.length > 0
+        ? allStrengths
+        : ['Keep practicing with full spoken responses']
+      : ['Submit spoken answers so the AI can score your performance'],
+    improvements: hasScoredAnswers
+      ? allImprovements.length > 0
+        ? allImprovements
+        : ['Review feedback for each question']
+      : ['Enable your microphone and speak for at least a few seconds per question'],
   };
 
   res.status(HTTP_STATUS.OK).json({

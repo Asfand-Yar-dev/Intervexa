@@ -128,7 +128,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
  * @desc    Add a new question
  * @access  Private (should be Admin only in production)
  */
-router.post('/add', authenticate, authorize('admin'), addQuestionValidation, asyncHandler(async (req, res) => {
+router.post('/add', authenticate, authorize('admin'), ...addQuestionValidation, asyncHandler(async (req, res) => {
   const { questionText, category, difficulty, expectedAnswer, keywords, timeLimit } = req.body;
 
   const question = new Question({
@@ -224,55 +224,62 @@ router.delete('/:id', authenticate, authorize('admin'), asyncHandler(async (req,
  * 3. Remove the placeholder response
  */
 router.post('/generate', authenticate, asyncHandler(async (req, res) => {
-  const { jobTitle, skills, difficulty, count } = req.body;
+  const { jobTitle, skills, difficulty, count = 5 } = req.body;
 
   if (!jobTitle) {
     throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'jobTitle is required for AI question generation');
   }
 
-  // -----------------------------------------------------------------
-  // PHASE 5: Replace this block with actual AI service call
-  // -----------------------------------------------------------------
-  // const aiServiceClient = require('../services/aiServiceClient');
-  // const aiResponse = await aiServiceClient.generateQuestions({
-  //   jobTitle,
-  //   skills: skills || [],
-  //   difficulty: difficulty || 'medium',
-  //   count: count || 5,
-  // });
-  //
-  // // Save generated questions to DB
-  // const savedQuestions = [];
-  // for (const q of aiResponse.questions) {
-  //   const question = await Question.create({
-  //     questionText: q.text,
-  //     category: q.category || 'AI Generated',
-  //     difficulty: difficulty || 'medium',
-  //     skills: skills || [],
-  //     isAIGenerated: true,
-  //     expectedAnswer: q.expectedAnswer,
-  //     keywords: q.keywords || [],
-  //   });
-  //   savedQuestions.push(question);
-  // }
-  //
-  // return res.status(HTTP_STATUS.CREATED).json({
-  //   success: true,
-  //   message: `Generated ${savedQuestions.length} questions`,
-  //   data: savedQuestions,
-  // });
-  // -----------------------------------------------------------------
+  const aiServiceClient = require('../services/aiServiceClient');
+  const diff =
+    difficulty && Object.values(DIFFICULTY_LEVELS).includes(difficulty)
+      ? difficulty
+      : DIFFICULTY_LEVELS.MEDIUM;
+  const diffLabel = diff.charAt(0).toUpperCase() + diff.slice(1);
+  const techStack = Array.isArray(skills) ? skills.join(', ') : String(skills || '');
 
-  // Placeholder response until Phase 5 is active
-  res.status(HTTP_STATUS.OK).json({
-    success: true,
-    message: 'AI question generation is not yet active (Phase 5). Questions from the question bank are available.',
-    data: {
-      phase5Required: true,
-      instructions: 'Set AI_SERVICE_URL and AI_SERVICE_API_KEY in .env to enable AI question generation.',
-      requestedParams: { jobTitle, skills, difficulty, count: count || 5 },
+  try {
+    const aiResponse = await aiServiceClient.generateQuestions(jobTitle, techStack, diffLabel, {
+      includeSoftSkills: false,
+      numSoftSkills: 0,
+    });
+
+    if (!aiResponse || aiResponse.status !== 'success' || !Array.isArray(aiResponse.questions)) {
+      throw new Error(aiResponse?.message || 'AI gateway returned an invalid response');
     }
-  });
+
+    const raw = aiResponse.questions
+      .map(q =>
+        typeof q === 'string' ? q.trim() : String((q && (q.text || q.question)) || '').trim()
+      )
+      .filter(q => q.length >= 10)
+      .slice(0, parseInt(count, 10) || 5);
+
+    const savedQuestions = [];
+    for (const text of raw) {
+      const question = await Question.create({
+        questionText: text,
+        category: 'technical',
+        difficulty: diff,
+        skills: Array.isArray(skills) ? skills : [],
+        isAIGenerated: true,
+        timeLimit: 120,
+      });
+      savedQuestions.push(question);
+    }
+
+    return res.status(HTTP_STATUS.CREATED).json({
+      success: true,
+      message: `Generated ${savedQuestions.length} questions`,
+      data: savedQuestions,
+    });
+  } catch (err) {
+    logger.error(`AI question generation failed: ${err.message}`);
+    throw new ApiError(
+      503,
+      `AI question generation failed: ${err.message}. Ensure the AI gateway is running and GEMINI_API_KEY is set.`
+    );
+  }
 }));
 
 module.exports = router;

@@ -75,13 +75,13 @@ const interviewSessionSchema = new mongoose.Schema({
 });
 
 /**
- * Pre-save: auto-calculate duration when session ends
+ * Pre-save: auto-calculate duration when session ends.
+ * Mongoose 8+ / 9: use sync middleware — the legacy `next` callback is not passed.
  */
-interviewSessionSchema.pre('save', function (next) {
+interviewSessionSchema.pre('save', function () {
   if (this.started_at && this.ended_at && this.isModified('ended_at')) {
     this.duration = Math.round((this.ended_at - this.started_at) / 1000);
   }
-  next();
 });
 
 /**

@@ -3,12 +3,14 @@
 ## ⚡ 5-Minute Quick Start
 
 ### Step 1: Install Dependencies (1 minute)
+
 ```bash
 cd "c:/Users/PMLS/OneDrive - BUITEMS/BUITEMS/University/FYP/AI Modules/NLP_Evaluation"
 pip install -r requirements.txt
 ```
 
 ### Step 2: Launch GUI Tester (30 seconds)
+
 ```bash
 python ai_engine/nlp_analysis.py
 ```
@@ -16,6 +18,7 @@ python ai_engine/nlp_analysis.py
 The GUI will open with pre-loaded example data. Click **"Analyze Relevance"** to see it in action!
 
 ### Step 3: Try Your Own Data (2 minutes)
+
 1. **Clear** the example data
 2. Enter your **Reference Answer** (the correct answer)
 3. Enter a **User Answer** (the answer to evaluate)
@@ -45,6 +48,7 @@ print(f"Feedback: {feedback}")
 ```
 
 **Expected Output:**
+
 ```
 Score: 78.5%
 Feedback: Good answer! Relevant but could include more details.
@@ -55,19 +59,20 @@ Feedback: Good answer! Relevant but could include more details.
 ## 📊 Understanding the Results
 
 ### Score Ranges:
-| Range | Meaning | What It Says |
-|-------|---------|--------------|
-| **90-100%** | 🟢 Excellent | Nearly perfect match - comprehensive understanding |
-| **80-89%** | 🟢 Very Good | Strong grasp with minor gaps |
-| **70-79%** | 🟡 Good | Understands core concepts but lacks detail |
-| **60-69%** | 🟡 Satisfactory | Basic understanding, needs improvement |
-| **50-59%** | 🟠 Partial | Missing key concepts |
-| **30-49%** | 🔴 Weak | Limited relevance |
-| **0-29%** | 🔴 Off-topic | Unrelated or incorrect |
+
+| Range       | Meaning         | What It Says                                       |
+| ----------- | --------------- | -------------------------------------------------- |
+| **90-100%** | 🟢 Excellent    | Nearly perfect match - comprehensive understanding |
+| **80-89%**  | 🟢 Very Good    | Strong grasp with minor gaps                       |
+| **70-79%**  | 🟡 Good         | Understands core concepts but lacks detail         |
+| **60-69%**  | 🟡 Satisfactory | Basic understanding, needs improvement             |
+| **50-59%**  | 🟠 Partial      | Missing key concepts                               |
+| **30-49%**  | 🔴 Weak         | Limited relevance                                  |
+| **0-29%**   | 🔴 Off-topic    | Unrelated or incorrect                             |
 
 ---
 
-##  Run the Demo
+## Run the Demo
 
 Want to see multiple examples at once?
 
@@ -76,12 +81,13 @@ python demo.py
 ```
 
 This will show 6 different scenarios:
+
 1. ✅ Excellent answer
 2. ✅ Good but brief answer
 3. ⚠️ Partially relevant answer
-4. ❌ Off-topic answer
+4. Off-topic answer
 5. ✅ Technical interview question
-6. ❌ Empty answer (edge case)
+6. Empty answer (edge case)
 
 **Runtime:** ~30 seconds (first run downloads model, subsequent runs are instant)
 
@@ -90,6 +96,7 @@ This will show 6 different scenarios:
 ## 🔧 Common Tasks
 
 ### Task 1: Evaluate Multiple Questions
+
 ```python
 analyzer = NLPAnalyzer()
 
@@ -104,6 +111,7 @@ for q, ref, ans in questions:
 ```
 
 ### Task 2: Set Custom Pass/Fail Threshold
+
 ```python
 PASSING_SCORE = 65
 
@@ -112,10 +120,11 @@ score, feedback = analyzer.evaluate_answer(user_answer, reference)
 if score >= PASSING_SCORE:
     print("✅ PASS:", feedback)
 else:
-    print("❌ FAIL:", feedback)
+    print(" FAIL:", feedback)
 ```
 
 ### Task 3: Save Results to File
+
 ```python
 import json
 from datetime import datetime
@@ -138,23 +147,31 @@ with open('results.json', 'w') as f:
 ## ❓ Troubleshooting
 
 ### Problem: "ModuleNotFoundError: No module named 'sentence_transformers'"
+
 **Solution:**
+
 ```bash
 pip install sentence-transformers torch scikit-learn numpy
 ```
 
 ### Problem: "Model takes long to load first time"
+
 **Solution:** This is normal. The model (~80MB) is being downloaded. Subsequent runs will be instant.
 
 ### Problem: "GUI doesn't open on Windows"
+
 **Solution:** Ensure Python has tkinter installed. For Windows, it's usually included. Try:
+
 ```bash
 python -m tkinter
 ```
+
 If this fails, reinstall Python with tkinter enabled.
 
 ### Problem: "Low scores for seemingly good answers"
+
 **Explanation:** The model compares semantic similarity. Very brief answers or different wording can result in lower scores. Consider this guidance:
+
 - Scores are **relative**, not absolute truth
 - Use them as **one signal** among multiple evaluation criteria
 - Encourage complete answers with key concepts mentioned

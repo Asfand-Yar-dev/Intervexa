@@ -16,7 +16,9 @@ const path = require('path');
 const logger = require('../config/logger');
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-const USE_REAL_AI = process.env.USE_REAL_AI === 'true';
+const USE_REAL_AI = !['false', '0', 'no'].includes(
+  String(process.env.USE_REAL_AI || 'true').toLowerCase()
+);
 
 /**
  * Analyze vocal characteristics from an audio file or URL.
@@ -89,6 +91,24 @@ async function analyzeVocal({ audioUrl, audioBuffer, filename = 'audio.webm' }) 
     } catch (error) {
       logger.warn(`Vocal AI service unreachable: ${error.message}. Using heuristic.`);
     }
+
+    // Real-AI mode: do not return synthetic vocal scores on gateway failure.
+    return {
+      score: 0,
+      metrics: {
+        confidence: 0,
+        clarity: 0,
+        pace: 0,
+        tone: 0,
+        stress: 0,
+      },
+      feedback: {
+        summary: 'Vocal analysis service is unavailable right now.',
+        details: [],
+        strengths: [],
+        improvements: ['Try again after AI services are fully loaded.'],
+      },
+    };
   }
 
   // -----------------------------------------------------------------------

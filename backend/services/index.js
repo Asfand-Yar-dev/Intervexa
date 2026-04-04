@@ -43,17 +43,26 @@ async function analyzeAnswer({ text, reference, audioUrl, audioBuffer, videoUrl,
     timestamp: new Date().toISOString(),
   };
 
-  // Run all analyses concurrently (each handles its own errors internally)
-  const [nlpResult, vocalResult, facialResult] = await Promise.allSettled([
+  // Run analyses concurrently. Facial analysis is conditional on actual video input.
+  const jobs = [
     nlpService.analyzeContent({ text, reference }),
     vocalService.analyzeVocal({ audioUrl, audioBuffer, filename }),
-    facialService.analyzeFacial({ videoUrl, videoBuffer, filename }),
-  ]);
+  ];
+  const hasVideo = Boolean(videoBuffer || videoUrl);
+  if (hasVideo) {
+    jobs.push(facialService.analyzeFacial({ videoUrl, videoBuffer, filename }));
+  }
+
+  const settled = await Promise.allSettled(jobs);
+  const nlpResult = settled[0];
+  const vocalResult = settled[1];
+  const facialResult = hasVideo ? settled[2] : null;
 
   // Extract results (default to null on rejection)
   results.nlp = nlpResult.status === 'fulfilled' ? nlpResult.value : null;
   results.vocal = vocalResult.status === 'fulfilled' ? vocalResult.value : null;
-  results.facial = facialResult.status === 'fulfilled' ? facialResult.value : null;
+  results.facial =
+    facialResult && facialResult.status === 'fulfilled' ? facialResult.value : null;
 
   // Log any failures
   if (nlpResult.status === 'rejected') {
@@ -62,7 +71,7 @@ async function analyzeAnswer({ text, reference, audioUrl, audioBuffer, videoUrl,
   if (vocalResult.status === 'rejected') {
     logger.error(`Vocal analysis failed: ${vocalResult.reason}`);
   }
-  if (facialResult.status === 'rejected') {
+  if (facialResult && facialResult.status === 'rejected') {
     logger.error(`Facial analysis failed: ${facialResult.reason}`);
   }
 

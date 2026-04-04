@@ -28,6 +28,7 @@ import sys
 import logging
 import tempfile
 import time
+import importlib.util
 from pathlib import Path
 
 from flask import Flask, request, jsonify
@@ -76,17 +77,47 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 _models = {}
 
+def _reset_ai_engine_imports():
+    """Clear cached ai_engine modules so imports resolve from the intended folder."""
+    for mod_name in list(sys.modules.keys()):
+        if mod_name == "ai_engine" or mod_name.startswith("ai_engine."):
+            sys.modules.pop(mod_name, None)
+
+def _load_symbol_from_file(module_name: str, file_path: Path, symbol_name: str):
+    """Load a symbol from a Python file using a unique module namespace."""
+    spec = importlib.util.spec_from_file_location(module_name, str(file_path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module spec for: {file_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not hasattr(module, symbol_name):
+        raise ImportError(f"Symbol '{symbol_name}' not found in {file_path}")
+    return getattr(module, symbol_name)
+
 
 def _get_interviewer():
     """Answer Generation — Gemini-based question & feedback generator."""
     if "interviewer" not in _models:
         try:
-            from ai_engine.interviewer import InterviewConductor
+            # There are multiple folders in this repo that contain an `ai_engine/` package.
+            # We MUST prioritize the Answer_Generation folder so that
+            # `ai_engine.interviewer` resolves to Answer_Generation/ai_engine/interviewer.py.
+            answer_gen_dir = PROJECT_ROOT / "Answer_Generation"
+            answer_gen_path = str(answer_gen_dir)
+            if answer_gen_path in sys.path:
+                sys.path.remove(answer_gen_path)
+            sys.path.insert(0, answer_gen_path)
+            _reset_ai_engine_imports()
+            InterviewConductor = _load_symbol_from_file(
+                "answer_generation_interviewer",
+                answer_gen_dir / "ai_engine" / "interviewer.py",
+                "InterviewConductor",
+            )
             api_key = os.getenv("GEMINI_API_KEY")
             _models["interviewer"] = InterviewConductor(api_key=api_key)
             logger.info("✅ InterviewConductor (Gemini) loaded")
         except Exception as e:
-            logger.error(f"❌ Failed to load InterviewConductor: {e}")
+            logger.error(f" Failed to load InterviewConductor: {e}")
             _models["interviewer"] = None
     return _models["interviewer"]
 
@@ -95,11 +126,21 @@ def _get_nlp_analyzer():
     """NLP Evaluation — Sentence-BERT similarity scoring."""
     if "nlp" not in _models:
         try:
-            from ai_engine.nlp_analysis import NLPAnalyzer
+            nlp_dir = PROJECT_ROOT / "NLP_Evaluation"
+            nlp_path = str(nlp_dir)
+            if nlp_path in sys.path:
+                sys.path.remove(nlp_path)
+            sys.path.insert(0, nlp_path)
+            _reset_ai_engine_imports()
+            NLPAnalyzer = _load_symbol_from_file(
+                "nlp_evaluation_analysis",
+                nlp_dir / "ai_engine" / "nlp_analysis.py",
+                "NLPAnalyzer",
+            )
             _models["nlp"] = NLPAnalyzer()
             logger.info("✅ NLPAnalyzer (Sentence-BERT) loaded")
         except Exception as e:
-            logger.error(f"❌ Failed to load NLPAnalyzer: {e}")
+            logger.error(f" Failed to load NLPAnalyzer: {e}")
             _models["nlp"] = None
     return _models["nlp"]
 
@@ -108,13 +149,17 @@ def _get_stt_engine():
     """Speech-to-Text — Whisper model."""
     if "stt" not in _models:
         try:
+            stt_dir = str(PROJECT_ROOT / "STT_Model")
+            if stt_dir in sys.path:
+                sys.path.remove(stt_dir)
+            sys.path.insert(0, stt_dir)
             from ai_models.stt_engine import STTEngine
             # Use 'base' for faster startup; switch to 'medium' for better accuracy
             model_size = os.getenv("WHISPER_MODEL_SIZE", "base")
             _models["stt"] = STTEngine.get_instance(model_size=model_size)
             logger.info(f"✅ STTEngine (Whisper {model_size}) loaded")
         except Exception as e:
-            logger.error(f"❌ Failed to load STTEngine: {e}")
+            logger.error(f" Failed to load STTEngine: {e}")
             _models["stt"] = None
     return _models["stt"]
 
@@ -123,11 +168,21 @@ def _get_vocal_analyzer():
     """Vocal Characteristics — Wav2Vec2 + librosa."""
     if "vocal" not in _models:
         try:
-            from ai_engine.vocal_analysis import VocalToneAnalyzer
+            voice_dir = PROJECT_ROOT / "Voice_Model"
+            voice_path = str(voice_dir)
+            if voice_path in sys.path:
+                sys.path.remove(voice_path)
+            sys.path.insert(0, voice_path)
+            _reset_ai_engine_imports()
+            VocalToneAnalyzer = _load_symbol_from_file(
+                "voice_model_analysis",
+                voice_dir / "ai_engine" / "vocal_analysis.py",
+                "VocalToneAnalyzer",
+            )
             _models["vocal"] = VocalToneAnalyzer()
             logger.info("✅ VocalToneAnalyzer (Wav2Vec2) loaded")
         except Exception as e:
-            logger.error(f"❌ Failed to load VocalToneAnalyzer: {e}")
+            logger.error(f" Failed to load VocalToneAnalyzer: {e}")
             _models["vocal"] = None
     return _models["vocal"]
 
@@ -140,7 +195,7 @@ def _get_facial_model():
             _models["facial"] = FacialExpressionModel()
             logger.info("✅ FacialExpressionModel (DeepFace) loaded")
         except Exception as e:
-            logger.error(f"❌ Failed to load FacialExpressionModel: {e}")
+            logger.error(f"Failed to load FacialExpressionModel: {e}")
             _models["facial"] = None
     return _models["facial"]
 
@@ -149,11 +204,21 @@ def _get_fusion_engine():
     """Fusion Engine — combines voice + face scores."""
     if "fusion" not in _models:
         try:
-            from ai_engine.fusion_engine import FusionEngine
+            fusion_dir = PROJECT_ROOT / "Fusion Model"
+            fusion_path = str(fusion_dir)
+            if fusion_path in sys.path:
+                sys.path.remove(fusion_path)
+            sys.path.insert(0, fusion_path)
+            _reset_ai_engine_imports()
+            FusionEngine = _load_symbol_from_file(
+                "fusion_model_engine",
+                fusion_dir / "ai_engine" / "fusion_engine.py",
+                "FusionEngine",
+            )
             _models["fusion"] = FusionEngine()
             logger.info("✅ FusionEngine loaded")
         except Exception as e:
-            logger.error(f"❌ Failed to load FusionEngine: {e}")
+            logger.error(f" Failed to load FusionEngine: {e}")
             _models["fusion"] = None
     return _models["fusion"]
 
@@ -361,18 +426,21 @@ def analyze_face():
             return jsonify({"status": "error", "message": "Cannot open video file"}), 400
 
         fps = cap.get(cv2.CAP_PROP_FPS) or 30
-        frame_interval = max(1, int(fps / 2))  # Analyze 2 frames per second
+        frame_interval = max(1, int(fps / 3))  # Analyze ~3 frames per second
         frame_count = 0
         analyzed_count = 0
+        first_frame_analyzed = False
 
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
             frame_count += 1
-            if frame_count % frame_interval == 0:
+            # Always attempt first frame; then sample by interval.
+            if (not first_frame_analyzed) or (frame_count % frame_interval == 0):
                 model.analyze_frame(frame)
                 analyzed_count += 1
+                first_frame_analyzed = True
 
         cap.release()
 

@@ -81,7 +81,7 @@ const upload = multer({
     fileFilter: fileFilter,
     limits: {
         fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024, // 10MB default
-        files: 1, // Only one file per request
+        files: 2, // audio + optional video
     }
 });
 
@@ -102,7 +102,7 @@ const handleMulterError = (err, req, res, next) => {
                 statusCode = 413;
                 break;
             case 'LIMIT_FILE_COUNT':
-                message = 'Too many files. Only one file allowed per upload.';
+                message = 'Too many files. Up to two files (audio + optional video) are allowed per upload.';
                 break;
             case 'LIMIT_UNEXPECTED_FILE':
                 message = err.message || 'Unexpected file field or invalid file type.';
