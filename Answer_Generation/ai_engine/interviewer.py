@@ -73,29 +73,17 @@ class InterviewConductor:
         # Configure the Gemini API
         genai.configure(api_key=self.api_key)
 
-        # Model fallback chain (Gemini-only, no non-Gemini fallback).
+        # Model fallback chain (gemini-1.5-flash has higher free tier limits than 2.5)
         models_env = os.getenv(
             "GEMINI_MODELS",
-            "gemini-2.5-flash,gemini-1.5-flash"
+            "gemini-1.5-flash,gemini-2.5-flash"
         )
         configured_names = [m.strip() for m in models_env.split(",") if m.strip()]
 
         # Keep only models that are available for generateContent in this API/version.
-        available_model_names = set()
-        try:
-            for m in genai.list_models():
-                name = (m.name or "").replace("models/", "")
-                methods = set(getattr(m, "supported_generation_methods", []) or [])
-                if name and "generateContent" in methods:
-                    available_model_names.add(name)
-        except Exception as e:
-            logger.warning(f"Could not list Gemini models; using configured names as-is. Error: {e}")
-
-        if available_model_names:
-            filtered = [m for m in configured_names if m in available_model_names]
-            self.model_names = filtered if filtered else configured_names
-        else:
-            self.model_names = configured_names
+        # We bypass dynamic genai.list_models() filtering because it incorrectly 
+        # drops 'gemini-1.5-flash' from some SDK versions, forcing default to '2.5-flash'
+        self.model_names = configured_names
         self.models = [genai.GenerativeModel(name) for name in self.model_names]
         self.max_retries = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
 

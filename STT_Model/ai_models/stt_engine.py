@@ -114,6 +114,10 @@ class STTEngine:
         self.model = None
         self.device = None
         self._model_loaded_at = None
+        
+        # Thread lock to prevent race conditions during concurrent STT requests
+        self._transcribe_lock = threading.Lock()
+        
         self._load_model()
     
     @staticmethod
@@ -280,9 +284,11 @@ class STTEngine:
             if progress_callback:
                 progress_callback(30)
             
-            # Run transcription with context manager for GPU memory
-            with torch.no_grad():  # Disable gradient computation for inference
-                result = self.model.transcribe(str(audio_path), **options)
+            # Run transcription sequentially with thread lock to avoid Whisper's 
+            # kv_cache hooks colliding and causing KeyErrors in Flask multithreading.
+            with self._transcribe_lock:
+                with torch.no_grad():  # Disable gradient computation for inference
+                    result = self.model.transcribe(str(audio_path), **options)
             
             if progress_callback:
                 progress_callback(90)
