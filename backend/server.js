@@ -40,7 +40,7 @@ app.use(cors(corsOptions));
 // Rate Limiting
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // 100 requests per window
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 1000, // Increased to 1000 to allow background polling of scores
   message: {
     success: false,
     message: 'Too many requests, please try again later.'

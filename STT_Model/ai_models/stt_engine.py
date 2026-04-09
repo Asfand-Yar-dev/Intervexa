@@ -296,13 +296,15 @@ class STTEngine:
             # Validate detected language is supported (English or Urdu only)
             detected_lang = result.get('language', 'unknown')
             if detected_lang not in self.SUPPORTED_LANGUAGES:
-                supported = ', '.join(f"'{k}' ({v})" for k, v in self.SUPPORTED_LANGUAGES.items())
-                logger.warning(f"Detected unsupported language: '{detected_lang}'")
+                logger.warning(f"Detected unsupported language: '{detected_lang}'. This typically happens on background noise/silence. Returning empty text.")
                 return {
-                    "status": "error",
-                    "message": f"Detected language '{detected_lang}' is not supported. "
-                               f"This model only supports: {supported}. "
-                               f"Please provide audio in English or Urdu."
+                    "status": "success",
+                    "text": "",
+                    "language": "en",
+                    "language_name": "English",
+                    "device_used": self.device,
+                    "segments": [],
+                    "duration": audio_file.stat().st_size / (1024 * 1024)
                 }
             
             # Clean up GPU memory if needed
@@ -378,8 +380,11 @@ class STTEngine:
         # Write bytes to a temporary file for Whisper to process
         temp_file = None
         try:
+            uploads_dir = _MODELS_DIR.parent / "uploads"
+            uploads_dir.mkdir(parents=True, exist_ok=True)
+            
             temp_file = tempfile.NamedTemporaryFile(
-                suffix=ext, delete=False, dir=str(_MODELS_DIR.parent / "uploads")
+                suffix=ext, delete=False, dir=str(uploads_dir)
             )
             temp_path = temp_file.name
             temp_file.write(audio_bytes)

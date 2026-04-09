@@ -505,7 +505,7 @@ export default function InterviewSetupPage() {
             <Button
               type="submit"
               disabled={!isFormValid || isLoading}
-              className="w-full h-14 bg-accent text-accent-foreground hover:bg-accent/90 text-lg font-semibold disabled:opacity-50"
+              className="w-full h-20 bg-accent text-accent-foreground hover:bg-accent/90 text-lg font-semibold disabled:opacity-50 flex flex-col items-center justify-center gap-2"
             >
               {isLoading ? (
                 <>

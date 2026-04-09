@@ -36,12 +36,14 @@ export default function ResultsPage() {
   const [feedback, setFeedback] = useState<InterviewFeedback | null>(null)
 
   useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+
     async function loadResults() {
       try {
         // Fetch results from backend
         const response = await interviewApi.getResults(sessionId)
         if (response.success && response.data) {
-          setFeedback({
+          const newFeedback = {
             overallScore: response.data.overallScore,
             confidenceScore: response.data.scores.confidence,
             clarityScore: response.data.scores.clarity,
@@ -53,7 +55,13 @@ export default function ResultsPage() {
             detailedFeedback: response.data.summary,
             questionsAnswered: response.data.questionsAnswered ?? 0,
             hasEvaluatedAnswers: response.data.hasEvaluatedAnswers ?? true,
-          })
+          };
+          setFeedback(newFeedback)
+
+          // Auto-poll if results are not ready yet (0 overall score implies we are likely still processing)
+          if (newFeedback.questionsAnswered > 0 && (!newFeedback.hasEvaluatedAnswers || newFeedback.overallScore === 0)) {
+            timeoutId = setTimeout(loadResults, 5000);
+          }
         }
       } catch (error) {
         console.error("Failed to load results:", error)
@@ -61,7 +69,12 @@ export default function ResultsPage() {
         setIsLoading(false)
       }
     }
+    
     loadResults()
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
   }, [sessionId])
 
   // Show loading while checking auth or loading data
@@ -135,13 +148,18 @@ export default function ResultsPage() {
             <Trophy className="h-10 w-10 text-accent" />
           </div>
           <h1 className="text-3xl font-bold text-foreground mb-2">Interview Complete!</h1>
-          <p className="text-muted-foreground max-w-md mx-auto">
-            {showMeaningfulScores
-              ? "Here's your performance breakdown for this session."
-              : feedback.questionsAnswered === 0
-                ? "No answers were recorded, so there is no score yet."
-                : "Your answers did not include enough speech for a full evaluation. Try again with clearer audio."}
-          </p>
+          
+          <div className="text-muted-foreground flex justify-center mt-4">
+            {showMeaningfulScores ? (
+              <p className="max-w-md">Here's your performance breakdown for this session.</p>
+            ) : feedback.questionsAnswered === 0 ? (
+              <p className="max-w-md">No answers were recorded, so there is no score yet.</p>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <p>Please wait, AI is analyzing your results...</p>
+              </div>
+            )}
+          </div>
         </motion.div>
 
         {/* Overall Score */}
@@ -159,7 +177,18 @@ export default function ResultsPage() {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.5, delay: 0.3 }}
             >
-              {showMeaningfulScores ? feedback.overallScore : "—"}
+              {showMeaningfulScores ? (
+                feedback.overallScore
+              ) : (
+                <div className="loader-wrapper mt-4">
+                  <div className="loader-circle"></div>
+                  <div className="loader-circle"></div>
+                  <div className="loader-circle"></div>
+                  <div className="loader-shadow"></div>
+                  <div className="loader-shadow"></div>
+                  <div className="loader-shadow"></div>
+                </div>
+              )}
             </motion.span>
             {showMeaningfulScores ? (
               <span className="text-2xl text-muted-foreground">/100</span>
@@ -170,16 +199,41 @@ export default function ResultsPage() {
         {/* Score Cards Grid */}
         {showMeaningfulScores ? (
           <div className="grid gap-4 grid-cols-2 lg:grid-cols-3">
-            <ScoreCard label="Confidence" score={feedback.confidenceScore} color={scoreColors.confidence} delay={0.2} />
-            <ScoreCard label="Clarity" score={feedback.clarityScore} color={scoreColors.clarity} delay={0.25} />
-            <ScoreCard label="Technical" score={feedback.technicalScore} color={scoreColors.technical} delay={0.3} />
+            <ScoreCard 
+              label="Confidence" 
+              score={feedback.confidenceScore} 
+              color={scoreColors.confidence} 
+              delay={0.2} 
+              zeroReason="Minimal vocal variation or long pauses detected."
+            />
+            <ScoreCard 
+              label="Clarity" 
+              score={feedback.clarityScore} 
+              color={scoreColors.clarity} 
+              delay={0.25} 
+              zeroReason="Audio clarity or speech rate was outside normal range."
+            />
+            <ScoreCard 
+              label="Technical" 
+              score={feedback.technicalScore} 
+              color={scoreColors.technical} 
+              delay={0.3} 
+              zeroReason="Response lacked the required technical depth or key terminology."
+            />
             <ScoreCard
               label="Body Language"
               score={feedback.bodyLanguageScore}
               color={scoreColors.bodyLanguage}
               delay={0.35}
+              zeroReason="Insufficient visual data or neutral expression detected."
             />
-            <ScoreCard label="Voice & Tone" score={feedback.voiceToneScore} color={scoreColors.voiceTone} delay={0.4} />
+            <ScoreCard 
+              label="Voice & Tone" 
+              score={feedback.voiceToneScore} 
+              color={scoreColors.voiceTone} 
+              delay={0.4} 
+              zeroReason="Voice modulation and sentiment were not clearly identified."
+            />
           </div>
         ) : (
           <div className="rounded-2xl border border-border/50 bg-card/80 p-8 text-center text-muted-foreground text-sm max-w-xl mx-auto">

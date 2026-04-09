@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from dotenv import load_dotenv
-import google.generativeai as genai
+import openai
 
 # Load environment variables from .env file (project root)
 # This makes GEMINI_API_KEY available via os.getenv()
@@ -51,99 +51,37 @@ class InterviewConductor:
     
     def __init__(self, api_key: Optional[str] = None):
         """
-        Initialize the InterviewConductor with Gemini API configuration.
-        
-        Args:
-            api_key (str, optional): Google Gemini API key. If not provided,
-                                    it will be read from GEMINI_API_KEY environment variable.
-        
-        Raises:
-            ValueError: If API key is not provided and not found in environment variables.
+        Initialize the InterviewConductor with LM Studio API configuration.
         """
-        # Get API key from parameter or environment variable
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
-        
-        if not self.api_key:
-            raise ValueError(
-                "Gemini API key not found. Please provide it as a parameter "
-                "or set the GEMINI_API_KEY environment variable.\n"
-                "Visit https://makersuite.google.com/app/apikey to get your key."
-            )
-        
-        # Configure the Gemini API
-        genai.configure(api_key=self.api_key)
-
-        # Model fallback chain (gemini-1.5-flash has higher free tier limits than 2.5)
-        models_env = os.getenv(
-            "GEMINI_MODELS",
-            "gemini-1.5-flash,gemini-2.5-flash"
+        # Configure the OpenAI client to point to Local LM Studio
+        self.client = openai.OpenAI(
+            base_url="http://127.0.0.1:1234/v1", 
+            api_key="lm-studio",
+            timeout=1200.0, # 20 minutes to survive heavy 5-question local queueing
+            max_retries=5
         )
-        configured_names = [m.strip() for m in models_env.split(",") if m.strip()]
-
-        # Keep only models that are available for generateContent in this API/version.
-        # We bypass dynamic genai.list_models() filtering because it incorrectly 
-        # drops 'gemini-1.5-flash' from some SDK versions, forcing default to '2.5-flash'
-        self.model_names = configured_names
-        self.models = [genai.GenerativeModel(name) for name in self.model_names]
-        self.max_retries = int(os.getenv("GEMINI_MAX_RETRIES", "2"))
+        self.model_name = "local-model"  # LM Studio will automatically use the currently loaded model
 
         logger.info(
-            "InterviewConductor initialized successfully with Gemini API "
-            f"(models={self.model_names}, retries={self.max_retries})"
+            "InterviewConductor initialized successfully with Local LM Studio API "
+            "(http://127.0.0.1:1234/v1)"
         )
-
-    def _extract_retry_delay(self, error_text: str) -> float:
-        """
-        Extract retry delay from Gemini error message when available.
-        Falls back to exponential backoff if missing.
-        """
-        # Matches strings like: "Please retry in 5.406911985s"
-        match = re.search(r"Please retry in ([0-9]+(?:\.[0-9]+)?)s", error_text)
-        if match:
-            return float(match.group(1))
-        # Matches blocks with retry_delay { seconds: 5 }
-        match = re.search(r"retry_delay\s*\{[^}]*seconds:\s*([0-9]+)", error_text)
-        if match:
-            return float(match.group(1))
-        return 0.0
 
     def _generate_with_retry(self, prompt: str) -> str:
         """
-        Generate content using Gemini with retry + model fallback.
-        Handles 429 quota/rate-limit errors robustly.
+        Generate content using LM Studio.
         """
-        last_error = None
-
-        for model_name, model in zip(self.model_names, self.models):
-            for attempt in range(self.max_retries + 1):
-                try:
-                    response = model.generate_content(prompt)
-                    return (response.text or "").strip()
-                except Exception as e:
-                    last_error = e
-                    err_text = str(e)
-                    is_quota = ("429" in err_text) or ("quota" in err_text.lower()) or ("rate limit" in err_text.lower())
-
-                    if attempt < self.max_retries and is_quota:
-                        retry_after = self._extract_retry_delay(err_text)
-                        if retry_after <= 0:
-                            retry_after = min(8.0, float(2 ** attempt))
-                        # Small buffer avoids immediate re-hit on strict quota windows.
-                        sleep_for = retry_after + 0.25
-                        logger.warning(
-                            f"Gemini quota/rate limit on {model_name}; "
-                            f"retrying in {sleep_for:.2f}s (attempt {attempt + 1}/{self.max_retries})"
-                        )
-                        time.sleep(sleep_for)
-                        continue
-
-                    logger.warning(
-                        f"Gemini generation failed on model={model_name}, "
-                        f"attempt={attempt + 1}: {err_text}"
-                    )
-                    break
-
-        raise RuntimeError(f"Gemini generation failed on all configured models: {last_error}")
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+            )
+            return (response.choices[0].message.content or "").strip()
+        except Exception as e:
+            err_text = str(e)
+            logger.error(f"LM Studio generation failed: {err_text}")
+            raise RuntimeError(f"LM Studio generation failed: {err_text}. Is LM Studio running on port 1234?")
     
     def generate_questions(
         self, 
@@ -256,8 +194,8 @@ Now generate the questions:"""
         except Exception as e:
             logger.error(f"Error generating questions: {str(e)}")
             # STRICT REQUIREMENT: Do not fall back to custom/implemented questions.
-            # If Gemini fails, propagate the error so the backend can fail hard.
-            raise RuntimeError(f"Gemini question generation failed: {str(e)}")
+            # If LM Studio fails, propagate the error so the backend can fail hard.
+            raise RuntimeError(f"LM Studio question generation failed: {str(e)}")
     
     def generate_soft_skills_questions(self, job_role: str, num_questions: int = 3) -> List[str]:
         """
@@ -372,8 +310,8 @@ Now generate the soft skills questions:"""
         except Exception as e:
             logger.error(f"Error generating soft skills questions: {str(e)}")
             # STRICT REQUIREMENT: Do not fall back to custom/implemented questions.
-            # If Gemini fails, propagate the error so the backend can fail hard.
-            raise RuntimeError(f"Gemini soft-skills question generation failed: {str(e)}")
+            # If LM Studio fails, propagate the error so the backend can fail hard.
+            raise RuntimeError(f"LM Studio soft-skills question generation failed: {str(e)}")
     
     def generate_feedback(self, question: str, user_answer: str) -> str:
         """
@@ -385,16 +323,6 @@ Now generate the soft skills questions:"""
         
         Returns:
             str: A constructive feedback paragraph analyzing the answer
-        
-        Example:
-            >>> conductor = InterviewConductor()
-            >>> feedback = conductor.generate_feedback(
-            ...     question="Explain how closures work in JavaScript.",
-            ...     user_answer="A closure is when a function remembers variables from its parent scope."
-            ... )
-            >>> print(feedback)
-            "Your answer captures the basic concept of closures correctly. However, consider expanding 
-            on practical use cases and mentioning lexical scoping..."
         """
         feedback_prompt = f"""You are a Senior Technical Interviewer providing constructive feedback on a candidate's answer.
 
@@ -411,13 +339,6 @@ Your task is to evaluate this answer and provide constructive feedback. Analyze 
 3. **Completeness**: What important concepts or details are missing?
 4. **Clarity**: Is the explanation clear and well-structured?
 
-REQUIREMENTS FOR YOUR FEEDBACK:
-- Write a single, concise paragraph (3-5 sentences)
-- Be constructive and encouraging, not harsh
-- Start with what they did well
-- Point out specific gaps or inaccuracies
-- Suggest what could be improved or added
-- Use professional, friendly tone
 
 OUTPUT FORMAT:
 - Plain text paragraph only
@@ -428,11 +349,8 @@ OUTPUT FORMAT:
 Generate the feedback now:"""
 
         try:
-            # Generate feedback using Gemini
-            response = self.model.generate_content(feedback_prompt)
-            
-            # Extract and clean the feedback
-            feedback = response.text.strip()
+            # Generate feedback using LM Studio
+            feedback = self._generate_with_retry(feedback_prompt)
             
             # Remove any markdown formatting that might have slipped through
             feedback = re.sub(r'\*\*([^*]+)\*\*', r'\1', feedback)
@@ -450,4 +368,51 @@ Generate the feedback now:"""
                 f"Consider exploring this topic further to strengthen your understanding."
             )
 
+    def evaluate_technical_score(self, question: str, user_answer: str, reference_answer: str = "") -> int:
+        """
+        Perform high-fidelity technical scoring of the candidate's response.
+        Distinguishes between genuine answers, repeated questions, and filler.
+        """
+        scoring_prompt = f"""You are a Senior Technical Recruiter. Grade this interview answer.
 
+[CONTEXT]
+- Question: {question}
+- Ideal Reference: {reference_answer}
+
+[CANDIDATE RESPONSE]
+{user_answer}
+
+[GRADING RULES]
+1. If the response is empty, silent, or says "I don't know": Score 0.
+2. If the user ONLY repeated the question words: Score 0-5.
+3. If the user attempted an answer but was technically weak: Score 20-50.
+4. If the user was correct but brief: Score 60-75.
+5. If the user was correct, detailed, and demonstrated expertise: Score 80-100.
+
+IMPORTANT: Do not be overly strict. If they mention the correct technical concepts, give them credit.
+
+OUTPUT: Return ONLY the number (0-100)."""
+        
+        try:
+            result = self._generate_with_retry(scoring_prompt)
+            logger.info(f"Technical Scoring Raw Output: '{result}'")
+            
+            # Robust extraction: find the first number in the response
+            numbers = re.findall(r'\d+', result)
+            if numbers:
+                # Take the most likely score (usually the first number)
+                score = int(numbers[0])
+                # Safety check for multi-number responses (like "Score: 80/100")
+                if score == 100 and len(numbers) > 1 and int(numbers[1]) == 100:
+                   score = 100
+                elif score > 100:
+                    score = 100
+                
+                logger.info(f"Final Assigned Score: {score}")
+                return score
+            
+            logger.warning("LLM didn't return a score number. Defaulting to 10 (effort detected).")
+            return 10
+        except Exception as e:
+            logger.error(f"Scoring engine error: {e}")
+            return 50 # Standard fallback for system errors

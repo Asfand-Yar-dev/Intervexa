@@ -36,34 +36,8 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
     const userId = req.user.id;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // First check if there are compiled Result documents
-    const resultQuery = { userId };
-    const resultCount = await Result.countDocuments(resultQuery);
-
-    if (resultCount > 0) {
-        // Return from the Result model (compiled results)
-        const results = await Result.find(resultQuery)
-            .populate('interviewId', 'session_type jobTitle difficulty started_at ended_at duration')
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(parseInt(limit))
-            .lean();
-
-        return res.status(HTTP_STATUS.OK).json({
-            success: true,
-            data: {
-                results,
-                pagination: {
-                    total: resultCount,
-                    page: parseInt(page),
-                    limit: parseInt(limit),
-                    pages: Math.ceil(resultCount / parseInt(limit))
-                }
-            }
-        });
-    }
-
-    // Fallback: build results from completed InterviewSessions
+    // NEW LOGIC: Always calculate dynamic results from individual answers to prevent stale zero-scores 
+    // when AI processing finishes after the interview report was first generated.
     const sessionQuery = {
         user_id: userId,
         status: 'completed',
@@ -80,33 +54,41 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
         .limit(parseInt(limit))
         .lean();
 
-    // For each session, get the answer count and average score
     const results = await Promise.all(sessions.map(async (session) => {
-        const answerStats = await Answer.aggregate([
-            { $match: { interviewId: session._id, userId: session.user_id } },
-            {
-                $group: {
-                    _id: null,
-                    count: { $sum: 1 },
-                    avgScore: { $avg: { $ifNull: ['$evaluationScore', 0] } }
-                }
-            }
-        ]);
+        const answers = await Answer.find({ interviewId: session._id, userId: session.user_id });
+        const answerIds = answers.map(a => a._id);
+        const AnswerAnalysis = require('../models/AnswerAnalysis');
+        const analyses = await AnswerAnalysis.find({ answerId: { $in: answerIds } });
 
-        const stats = answerStats[0] || { count: 0, avgScore: 0 };
+        const completedCount = answers.filter(a => a.processingStatus === 'completed').length;
+        
+        const overallScoreFromAnswers = completedCount > 0 
+            ? Math.round(answers.reduce((s, a) => s + (a.evaluationScore ?? 0), 0) / completedCount)
+            : 0;
+
+        // Calculate category averages
+        const avgAnalysis = (field) => {
+            const vals = analyses.map(an => an[field]).filter(v => v > 0);
+            return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : 0;
+        };
 
         return {
             sessionId: session._id,
             sessionType: session.session_type,
-            jobTitle: session.jobTitle || '',
+            jobTitle: session.jobTitle || 'Job Interview',
             difficulty: session.difficulty || 'medium',
             status: session.status,
-            overallScore: session.overall_score || Math.round(stats.avgScore),
-            questionsAnswered: stats.count,
-            totalQuestions: session.total_questions || stats.count,
+            overallScore: session.overall_score || overallScoreFromAnswers,
+            scores: {
+                overall: overallScoreFromAnswers,
+                technical: avgAnalysis('technicalScore'),
+                confidence: avgAnalysis('confidenceScore'),
+                clarity: avgAnalysis('clarityScore'),
+            },
+            questionsAnswered: answers.length,
+            totalQuestions: session.total_questions || answers.length,
             startedAt: session.started_at,
             completedAt: session.ended_at,
-            duration: session.duration,
             createdAt: session.createdAt,
         };
     }));
@@ -232,8 +214,7 @@ async function compileInterviewResult(interviewId, userId) {
         .filter(
             ({ answer }) =>
                 answer &&
-                answer.processingStatus === 'completed' &&
-                (answer.evaluationScore ?? 0) > 0
+                answer.processingStatus === 'completed'
         );
 
     const completedAnswers = answers.filter((a) => a.processingStatus === 'completed');

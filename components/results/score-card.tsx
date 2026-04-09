@@ -7,9 +7,10 @@ interface ScoreCardProps {
   score: number
   color: string
   delay?: number
+  zeroReason?: string
 }
 
-export function ScoreCard({ label, score, color, delay = 0 }: ScoreCardProps) {
+export function ScoreCard({ label, score, color, delay = 0, zeroReason }: ScoreCardProps) {
   const circumference = 2 * Math.PI * 40
   const strokeDashoffset = circumference - (score / 100) * circumference
 
@@ -49,6 +50,11 @@ export function ScoreCard({ label, score, color, delay = 0 }: ScoreCardProps) {
         </div>
       </div>
       <p className="text-sm text-muted-foreground text-center">{label}</p>
+      {score === 0 && zeroReason && (
+        <p className="text-[10px] sm:text-xs text-muted-foreground/60 text-center mt-2 leading-tight">
+          {zeroReason}
+        </p>
+      )}
     </motion.div>
   )
 }

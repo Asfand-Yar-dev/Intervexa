@@ -49,13 +49,14 @@ class NLPAnalyzer:
             logger.error(f"Error loading model: {e}")
             raise
     
-    def evaluate_answer(self, user_answer, reference_answer):
+    def evaluate_answer(self, user_answer, reference_answer, question_text=None):
         """
         Evaluate the user's answer against a reference answer.
         
         Args:
             user_answer (str): The answer provided by the user
             reference_answer (str): The correct/reference answer
+            question_text (str, optional): The original question asked
             
         Returns:
             tuple: (score, feedback)
@@ -63,22 +64,34 @@ class NLPAnalyzer:
                 - feedback (str): Qualitative feedback based on the score
         """
         # Input validation
-        if not user_answer or not user_answer.strip():
-            return 0.0, "No answer provided. Please enter your response."
+        if not user_answer or len(user_answer.strip()) < 5:
+            return 0.0, "No answer provided or answer is too short. Please enter a proper response."
         
         if not reference_answer or not reference_answer.strip():
             return 0.0, "No reference answer available for comparison."
         
         try:
-            # Generate embeddings for both answers
             user_embedding = self.model.encode([user_answer])
+            
+            # Check if the user is just repeating the question
+            if question_text and len(question_text.strip()) > 5:
+                question_embedding = self.model.encode([question_text])
+                question_similarity = cosine_similarity(user_embedding, question_embedding)[0][0]
+                
+                # If they are just parroting the question, similarity will be very high (e.g., > 0.8)
+                if question_similarity > 0.85:
+                    return 0.0, "You appear to have just repeated the question. Please provide a substantive answer."
+            
             reference_embedding = self.model.encode([reference_answer])
             
-            # Calculate cosine similarity
+            # Calculate cosine similarity with the reference answer
             similarity = cosine_similarity(user_embedding, reference_embedding)[0][0]
             
-            # Convert to percentage (0-100)
-            score = float(similarity * 100)
+            # Convert to percentage (0-100), but scale it so that low similarities (e.g., < 0.4) 
+            # approach 0, instead of getting an artificial 40% score.
+            # Map [0.4, 1.0] to [0, 100]
+            scaled_similarity = max(0.0, min(1.0, (similarity - 0.4) / 0.6))
+            score = float(scaled_similarity * 100)
             
             # Generate qualitative feedback based on score thresholds
             feedback = self._generate_feedback(score)

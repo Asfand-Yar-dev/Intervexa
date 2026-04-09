@@ -1,0 +1,66 @@
+=============================================================================
+GUIDE: SWITCHING FROM LOCAL LLM (LM STUDIO) TO GOOGLE GEMINI API
+=============================================================================
+
+If you want to stop using the local LM Studio and switch back to the official 
+Google Gemini API, follow these exact steps for each file:
+
+-----------------------------------------------------------------------------
+1. BACKEND: Answer_Generation/ai_engine/interviewer.py
+-----------------------------------------------------------------------------
+STEP A: TOP OF FILE (Imports)
+Remove: import openai
+Add:    import google.generativeai as genai
+
+STEP B: Update Initialization (Replace the __init__ method)
+Replace the existing __init__ with this:
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        if not self.api_key:
+            self.model = None
+        else:
+            try:
+                genai.configure(api_key=self.api_key)
+                self.model = genai.GenerativeModel('gemini-1.5-flash')
+            except Exception as e:
+                self.model = None
+
+STEP C: Update Generation (Replace _generate_with_retry method)
+Replace the existing _generate_with_retry with this:
+    def _generate_with_retry(self, prompt: str) -> str:
+        if not self.model:
+            raise RuntimeError("Gemini model not initialized.")
+        try:
+            response = self.model.generate_content(prompt)
+            return response.text.strip()
+        except Exception as e:
+            raise RuntimeError(f"Gemini API Error: {e}")
+
+-----------------------------------------------------------------------------
+2. ENVIRONMENT: ai_gateway/.env
+-----------------------------------------------------------------------------
+Ensure this line exists with your real key:
+GEMINI_API_KEY=your_real_gemini_api_key_here
+
+-----------------------------------------------------------------------------
+3. SERVER TIMEOUTS: backend/.env
+-----------------------------------------------------------------------------
+Revert the long timeouts (Gemini is fast):
+AI_SERVICE_TIMEOUT=60000
+RATE_LIMIT_MAX_REQUESTS=200
+
+-----------------------------------------------------------------------------
+4. FRONTEND TIMEOUTS: lib/api-config.ts
+-----------------------------------------------------------------------------
+Change line 60:
+export const REQUEST_TIMEOUT = 60000;
+
+-----------------------------------------------------------------------------
+5. INSTALLATION
+-----------------------------------------------------------------------------
+Make sure you have the library installed:
+pip install google-generativeai
+
+=============================================================================
+AFTER CHANGES: RESTART ALL SERVERS (Node backend + AI Gateway)
+=============================================================================
