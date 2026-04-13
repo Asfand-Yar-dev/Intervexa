@@ -57,7 +57,7 @@ export const API_ENDPOINTS = {
 } as const;
 
 // Request timeout in milliseconds
-export const REQUEST_TIMEOUT = 600000;
+export const REQUEST_TIMEOUT = 60000;
 
 // Token storage keys
 export const STORAGE_KEYS = {

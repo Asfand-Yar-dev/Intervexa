@@ -26,11 +26,11 @@ Version: 1.0
 import logging
 import os
 import re
-import time
 from pathlib import Path
 from typing import List, Optional
 
 from dotenv import load_dotenv
+# import google.generativeai as genai
 import openai
 
 # Load environment variables from .env file (project root)
@@ -51,37 +51,37 @@ class InterviewConductor:
     
     def __init__(self, api_key: Optional[str] = None):
         """
-        Initialize the InterviewConductor with LM Studio API configuration.
+        Initialize the InterviewConductor with Groq API.
         """
-        # Configure the OpenAI client to point to Local LM Studio
-        self.client = openai.OpenAI(
-            base_url="http://127.0.0.1:1234/v1", 
-            api_key="lm-studio",
-            timeout=1200.0, # 20 minutes to survive heavy 5-question local queueing
-            max_retries=5
-        )
-        self.model_name = "local-model"  # LM Studio will automatically use the currently loaded model
-
-        logger.info(
-            "InterviewConductor initialized successfully with Local LM Studio API "
-            "(http://127.0.0.1:1234/v1)"
-        )
+        self.api_key = api_key or os.getenv("GROQ_API_KEY")
+        if not self.api_key:
+            self.model = None
+            logger.warning("No GROQ_API_KEY found. InterviewConductor will not be functional.")
+        else:
+            self.client = openai.OpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                api_key=self.api_key,
+            )
+            self.model = "llama-3.3-70b-versatile"
+            logger.info("InterviewConductor initialized successfully with Groq API")
 
     def _generate_with_retry(self, prompt: str) -> str:
         """
-        Generate content using LM Studio.
+        Generate content using Groq API.
         """
+        if not self.model:
+            raise RuntimeError("Groq model not initialized. Check your GROQ_API_KEY.")
         try:
             response = self.client.chat.completions.create(
-                model=self.model_name,
+                model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
             )
             return (response.choices[0].message.content or "").strip()
         except Exception as e:
-            err_text = str(e)
-            logger.error(f"LM Studio generation failed: {err_text}")
-            raise RuntimeError(f"LM Studio generation failed: {err_text}. Is LM Studio running on port 1234?")
+            logger.error(f"Groq API generation failed: {e}")
+            raise RuntimeError(f"Groq API Error: {e}")
+            
     
     def generate_questions(
         self, 
@@ -152,7 +152,7 @@ How would you design a scalable microservices architecture for an e-commerce pla
 Now generate the questions:"""
 
         try:
-            # Generate content using Gemini with retry + model fallback
+            # Generate content using Gemini API
             generated_text = self._generate_with_retry(system_prompt)
             
             # Split by newlines and clean up
@@ -194,8 +194,8 @@ Now generate the questions:"""
         except Exception as e:
             logger.error(f"Error generating questions: {str(e)}")
             # STRICT REQUIREMENT: Do not fall back to custom/implemented questions.
-            # If LM Studio fails, propagate the error so the backend can fail hard.
-            raise RuntimeError(f"LM Studio question generation failed: {str(e)}")
+            # If Gemini fails, propagate the error so the backend can fail hard.
+            raise RuntimeError(f"Gemini question generation failed: {str(e)}")
     
     def generate_soft_skills_questions(self, job_role: str, num_questions: int = 3) -> List[str]:
         """
@@ -268,7 +268,7 @@ Tell me about a situation where you had to learn a new skill quickly to complete
 Now generate the soft skills questions:"""
 
         try:
-            # Generate content using Gemini with retry + model fallback
+            # Generate content using Gemini API
             generated_text = self._generate_with_retry(soft_skills_prompt)
             
             # Split by newlines and clean up
@@ -310,8 +310,8 @@ Now generate the soft skills questions:"""
         except Exception as e:
             logger.error(f"Error generating soft skills questions: {str(e)}")
             # STRICT REQUIREMENT: Do not fall back to custom/implemented questions.
-            # If LM Studio fails, propagate the error so the backend can fail hard.
-            raise RuntimeError(f"LM Studio soft-skills question generation failed: {str(e)}")
+            # If Gemini fails, propagate the error so the backend can fail hard.
+            raise RuntimeError(f"Gemini soft-skills question generation failed: {str(e)}")
     
     def generate_feedback(self, question: str, user_answer: str) -> str:
         """
@@ -349,7 +349,7 @@ OUTPUT FORMAT:
 Generate the feedback now:"""
 
         try:
-            # Generate feedback using LM Studio
+            # Generate feedback using Gemini API
             feedback = self._generate_with_retry(feedback_prompt)
             
             # Remove any markdown formatting that might have slipped through
