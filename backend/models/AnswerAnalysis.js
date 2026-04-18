@@ -52,6 +52,13 @@ const answerAnalysisSchema = new mongoose.Schema({
         min: 0,
         max: 100,
     },
+    // Percentage of video frames where a face was visible (0 = camera off, 100 = always on)
+    facePresenceRate: {
+        type: Number,
+        min: 0,
+        max: 100,
+        default: 0,
+    },
 
     overallScore: {
         type: Number,

@@ -128,11 +128,17 @@ async function saveAnalysis(answerId, interviewId, userId, analysis) {
         interviewId,
         userId,
         // Scores
+        // confidenceScore → vocal confidence (how assertively the user spoke)
         confidenceScore: analysis.vocal?.metrics?.confidence ?? analysis.nlp?.score ?? 0,
-        clarityScore: analysis.vocal?.metrics?.clarity ?? analysis.nlp?.metrics?.coherence ?? 0,
+        // clarityScore → answer coherence/structure (text-based), not raw audio clarity.
+        // Raw audio clarity from Wav2Vec2 on browser WebM is unreliable and scores too low.
+        clarityScore: analysis.nlp?.metrics?.coherence ?? analysis.vocal?.metrics?.clarity ?? 0,
         technicalScore: analysis.nlp?.score ?? 0,
+        // bodyLanguageScore: only meaningful when a face was actually detected
         bodyLanguageScore: analysis.facial?.metrics?.bodyLanguage ?? 0,
         voiceToneScore: analysis.vocal?.metrics?.tone ?? 0,
+        // Track face presence so the UI can show "Camera Off" for low-presence sessions
+        facePresenceRate: analysis.facial?.metrics?.facePresence ?? (analysis.facial ? 100 : 0),
         // Feedback
         strengths: [
           ...(analysis.nlp?.feedback?.strengths || []),

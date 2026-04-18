@@ -375,23 +375,33 @@ Generate the feedback now:"""
         """
         scoring_prompt = f"""You are a Senior Technical Recruiter. Grade this interview answer.
 
-[CONTEXT]
-- Question: {question}
-- Ideal Reference: {reference_answer}
+IMPORTANT CONTEXT: The candidate's response below is an automatic speech-to-text transcript.
+It may contain minor recognition errors, repeated words, or missing punctuation. Evaluate the
+TECHNICAL CONTENT and UNDERSTANDING, not transcription quality. Give benefit of the doubt for
+small wording issues if the core idea is correct.
 
-[CANDIDATE RESPONSE]
+[QUESTION]
+{question}
+
+{"[REFERENCE ANSWER]" + chr(10) + reference_answer if reference_answer else ""}
+
+[CANDIDATE RESPONSE — speech transcript]
 {user_answer}
 
-[GRADING RULES]
-1. If the response is empty, silent, or says "I don't know": Score 0.
-2. If the user ONLY repeated the question words: Score 0-5.
-3. If the user attempted an answer but was technically weak: Score 20-50.
-4. If the user was correct but brief: Score 60-75.
-5. If the user was correct, detailed, and demonstrated expertise: Score 80-100.
+[GRADING SCALE]
+0   – Empty, silent, or literally just "I don't know" with no attempt.
+0   – Candidate only read the question back verbatim with zero added content.
+1-20  – Completely wrong or incoherent answer with no relevant technical content.
+21-40 – Partial understanding shown; key concepts missing or confused.
+41-59 – Basic understanding present; answer is incomplete or lacks important detail.
+60-75 – Correct answer, covers the main points but could be more detailed.
+76-90 – Strong answer with good technical depth and mostly correct details.
+91-100 – Excellent answer: comprehensive, precise, demonstrates real expertise.
 
-IMPORTANT: Do not be overly strict. If they mention the correct technical concepts, give them credit.
+IMPORTANT: A correct answer that is simply brief should score at least 60.
+Do NOT penalise for speaking style or filler words — only for wrong or missing technical content.
 
-OUTPUT: Return ONLY the number (0-100)."""
+OUTPUT: Return ONLY the integer score (0-100). No explanation."""
         
         try:
             result = self._generate_with_retry(scoring_prompt)

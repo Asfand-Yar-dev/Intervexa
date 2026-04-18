@@ -119,6 +119,10 @@ class FacialExpressionModel:
         )
         if len(faces) == 0:
             return 0.0
+        # Extra guard: ignore tiny noise detections from dark/covered cameras
+        faces = [f for f in faces if f[2] >= 30 and f[3] >= 30]
+        if len(faces) == 0:
+            return 0.0
 
         fx, fy, fw, fh = max(faces, key=lambda r: r[2] * r[3])
         roi = gray[fy : fy + fh, fx : fx + fw]
@@ -258,7 +262,10 @@ class FacialExpressionModel:
                 "h": region.get("h", 0),
             }
 
-            if fc["w"] > 0 and fc["h"] > 0:
+            # Require a minimum face region of 30x30 px.
+            # Dark/covered frames produce tiny noise regions (w=1, h=1) that
+            # pass the old `> 0` check — this filters those out.
+            if fc["w"] >= 30 and fc["h"] >= 30:
                 is_face_present = True
                 emotion = dominant
                 raw_emotion = dominant
@@ -345,6 +352,16 @@ class FacialExpressionModel:
             + avg_eye * 0.20,
             1,
         )
+
+        # HARD PENALTY: If a real face was present in fewer than 40% of frames,
+        # the camera was likely covered or the user was off-screen for most of the session.
+        # Zero out all scores so fabricated body-language numbers don't appear.
+        if face_rate < 40.0:
+            avg_conf = 0.0
+            avg_nerv = 100.0
+            avg_eng = 0.0
+            avg_eye = 0.0
+            overall = 0.0
 
         # Emotion distribution
         if s["emotions"]:

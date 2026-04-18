@@ -24,11 +24,17 @@ Author: Intervexa Team
 """
 
 import os
+
+# Suppress TensorFlow cosmetic warnings before any imports touch TF
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+
 import sys
 import logging
 import tempfile
 import time
 import importlib.util
+import threading
 from pathlib import Path
 
 from flask import Flask, request, jsonify
@@ -76,6 +82,17 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # Lazy-load AI models (loaded on first request to save startup time)
 # ---------------------------------------------------------------------------
 _models = {}
+_model_locks = {
+    "interviewer": threading.Lock(),
+    "stt": threading.Lock(),
+    "vocal": threading.Lock(),
+    "facial": threading.Lock(),
+    "fusion": threading.Lock(),
+}
+# Dedicated lock to serialize the entire facial analysis sequence
+# (reset_history → analyze_frame loop → get_session_feedback) so
+# concurrent requests don't corrupt the shared model's emotion history.
+_facial_analysis_lock = threading.Lock()
 
 def _reset_ai_engine_imports():
     """Clear cached ai_engine modules so imports resolve from the intended folder."""
@@ -98,27 +115,26 @@ def _load_symbol_from_file(module_name: str, file_path: Path, symbol_name: str):
 def _get_interviewer():
     """Answer Generation — Gemini-based question & feedback generator."""
     if "interviewer" not in _models:
-        try:
-            # There are multiple folders in this repo that contain an `ai_engine/` package.
-            # We MUST prioritize the Answer_Generation folder so that
-            # `ai_engine.interviewer` resolves to Answer_Generation/ai_engine/interviewer.py.
-            answer_gen_dir = PROJECT_ROOT / "Answer_Generation"
-            answer_gen_path = str(answer_gen_dir)
-            if answer_gen_path in sys.path:
-                sys.path.remove(answer_gen_path)
-            sys.path.insert(0, answer_gen_path)
-            _reset_ai_engine_imports()
-            InterviewConductor = _load_symbol_from_file(
-                "answer_generation_interviewer",
-                answer_gen_dir / "ai_engine" / "interviewer.py",
-                "InterviewConductor",
-            )
-            api_key = os.getenv("GEMINI_API_KEY")
-            _models["interviewer"] = InterviewConductor(api_key=api_key)
-            logger.info("✅ InterviewConductor (Gemini) loaded")
-        except Exception as e:
-            logger.error(f" Failed to load InterviewConductor: {e}")
-            _models["interviewer"] = None
+        with _model_locks["interviewer"]:
+            if "interviewer" not in _models:
+                try:
+                    answer_gen_dir = PROJECT_ROOT / "Answer_Generation"
+                    answer_gen_path = str(answer_gen_dir)
+                    if answer_gen_path in sys.path:
+                        sys.path.remove(answer_gen_path)
+                    sys.path.insert(0, answer_gen_path)
+                    _reset_ai_engine_imports()
+                    InterviewConductor = _load_symbol_from_file(
+                        "answer_generation_interviewer",
+                        answer_gen_dir / "ai_engine" / "interviewer.py",
+                        "InterviewConductor",
+                    )
+                    api_key = os.getenv("GEMINI_API_KEY")
+                    _models["interviewer"] = InterviewConductor(api_key=api_key)
+                    logger.info("✅ InterviewConductor (Gemini) loaded")
+                except Exception as e:
+                    logger.error(f" Failed to load InterviewConductor: {e}")
+                    _models["interviewer"] = None
     return _models["interviewer"]
 
 
@@ -130,78 +146,85 @@ def _get_nlp_analyzer():
 def _get_stt_engine():
     """Speech-to-Text — Whisper model."""
     if "stt" not in _models:
-        try:
-            stt_dir = str(PROJECT_ROOT / "STT_Model")
-            if stt_dir in sys.path:
-                sys.path.remove(stt_dir)
-            sys.path.insert(0, stt_dir)
-            from ai_models.stt_engine import STTEngine
-            # Use 'base' for faster startup; switch to 'medium' for better accuracy
-            model_size = os.getenv("WHISPER_MODEL_SIZE", "base")
-            _models["stt"] = STTEngine.get_instance(model_size=model_size)
-            logger.info(f"✅ STTEngine (Whisper {model_size}) loaded")
-        except Exception as e:
-            logger.error(f" Failed to load STTEngine: {e}")
-            _models["stt"] = None
+        with _model_locks["stt"]:
+            if "stt" not in _models:
+                try:
+                    stt_dir = str(PROJECT_ROOT / "STT_Model")
+                    if stt_dir in sys.path:
+                        sys.path.remove(stt_dir)
+                    sys.path.insert(0, stt_dir)
+                    from ai_models.stt_engine import STTEngine
+                    model_size = os.getenv("WHISPER_MODEL_SIZE", "base")
+                    _models["stt"] = STTEngine.get_instance(model_size=model_size)
+                    logger.info(f"✅ STTEngine (Whisper {model_size}) loaded")
+                except Exception as e:
+                    logger.error(f" Failed to load STTEngine: {e}")
+                    _models["stt"] = None
     return _models["stt"]
 
 
 def _get_vocal_analyzer():
     """Vocal Characteristics — Wav2Vec2 + librosa."""
     if "vocal" not in _models:
-        try:
-            voice_dir = PROJECT_ROOT / "Voice_Model"
-            voice_path = str(voice_dir)
-            if voice_path in sys.path:
-                sys.path.remove(voice_path)
-            sys.path.insert(0, voice_path)
-            _reset_ai_engine_imports()
-            VocalToneAnalyzer = _load_symbol_from_file(
-                "voice_model_analysis",
-                voice_dir / "ai_engine" / "vocal_analysis.py",
-                "VocalToneAnalyzer",
-            )
-            _models["vocal"] = VocalToneAnalyzer()
-            logger.info("✅ VocalToneAnalyzer (Wav2Vec2) loaded")
-        except Exception as e:
-            logger.error(f" Failed to load VocalToneAnalyzer: {e}")
-            _models["vocal"] = None
+        with _model_locks["vocal"]:
+            if "vocal" not in _models:
+                try:
+                    voice_dir = PROJECT_ROOT / "Voice_Model"
+                    voice_path = str(voice_dir)
+                    if voice_path in sys.path:
+                        sys.path.remove(voice_path)
+                    sys.path.insert(0, voice_path)
+                    _reset_ai_engine_imports()
+                    VocalToneAnalyzer = _load_symbol_from_file(
+                        "voice_model_analysis",
+                        voice_dir / "ai_engine" / "vocal_analysis.py",
+                        "VocalToneAnalyzer",
+                    )
+                    _models["vocal"] = VocalToneAnalyzer()
+                    logger.info("✅ VocalToneAnalyzer (Wav2Vec2) loaded")
+                except Exception as e:
+                    logger.error(f" Failed to load VocalToneAnalyzer: {e}")
+                    _models["vocal"] = None
     return _models["vocal"]
 
 
 def _get_facial_model():
     """Facial Expression — DeepFace + OpenCV."""
     if "facial" not in _models:
-        try:
-            from models.Facial_AI_Module import FacialExpressionModel
-            _models["facial"] = FacialExpressionModel()
-            logger.info("✅ FacialExpressionModel (DeepFace) loaded")
-        except Exception as e:
-            logger.error(f"Failed to load FacialExpressionModel: {e}")
-            _models["facial"] = None
+        with _model_locks["facial"]:
+            if "facial" not in _models:
+                try:
+                    from models.Facial_AI_Module import FacialExpressionModel
+                    _models["facial"] = FacialExpressionModel()
+                    logger.info("✅ FacialExpressionModel (DeepFace) loaded")
+                except Exception as e:
+                    logger.error(f"Failed to load FacialExpressionModel: {e}")
+                    _models["facial"] = None
     return _models["facial"]
 
 
 def _get_fusion_engine():
     """Fusion Engine — combines voice + face scores."""
     if "fusion" not in _models:
-        try:
-            fusion_dir = PROJECT_ROOT / "Fusion Model"
-            fusion_path = str(fusion_dir)
-            if fusion_path in sys.path:
-                sys.path.remove(fusion_path)
-            sys.path.insert(0, fusion_path)
-            _reset_ai_engine_imports()
-            FusionEngine = _load_symbol_from_file(
-                "fusion_model_engine",
-                fusion_dir / "ai_engine" / "fusion_engine.py",
-                "FusionEngine",
-            )
-            _models["fusion"] = FusionEngine()
-            logger.info("✅ FusionEngine loaded")
-        except Exception as e:
-            logger.error(f" Failed to load FusionEngine: {e}")
-            _models["fusion"] = None
+        with _model_locks["fusion"]:
+            if "fusion" not in _models:
+                try:
+                    fusion_dir = PROJECT_ROOT / "Fusion Model"
+                    fusion_path = str(fusion_dir)
+                    if fusion_path in sys.path:
+                        sys.path.remove(fusion_path)
+                    sys.path.insert(0, fusion_path)
+                    _reset_ai_engine_imports()
+                    FusionEngine = _load_symbol_from_file(
+                        "fusion_model_engine",
+                        fusion_dir / "ai_engine" / "fusion_engine.py",
+                        "FusionEngine",
+                    )
+                    _models["fusion"] = FusionEngine()
+                    logger.info("✅ FusionEngine loaded")
+                except Exception as e:
+                    logger.error(f" Failed to load FusionEngine: {e}")
+                    _models["fusion"] = None
     return _models["fusion"]
 
 
@@ -419,38 +442,44 @@ def analyze_face():
         import cv2
         video_file.save(temp_path)
 
-        # Reset session for fresh analysis
-        model.reset_history()
+        # Serialize the entire reset → analyze → feedback sequence
+        # because the FacialExpressionModel is a shared singleton with
+        # mutable emotion history.  Without this lock, concurrent
+        # requests corrupt each other's accumulated frame data.
+        with _facial_analysis_lock:
+            # Reset session for fresh analysis
+            model.reset_history()
 
-        # Open video and analyze frames
-        cap = cv2.VideoCapture(temp_path)
-        if not cap.isOpened():
-            return jsonify({"status": "error", "message": "Cannot open video file"}), 400
+            # Open video and analyze frames
+            cap = cv2.VideoCapture(temp_path)
+            if not cap.isOpened():
+                return jsonify({"status": "error", "message": "Cannot open video file"}), 400
 
-        fps = cap.get(cv2.CAP_PROP_FPS) or 30
-        frame_interval = max(1, int(fps / 3))  # Analyze ~3 frames per second
-        frame_count = 0
-        analyzed_count = 0
-        first_frame_analyzed = False
+            fps = cap.get(cv2.CAP_PROP_FPS) or 30
+            frame_interval = max(1, int(fps / 3))  # Analyze ~3 frames per second
+            frame_count = 0
+            analyzed_count = 0
+            first_frame_analyzed = False
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame_count += 1
-            # Always attempt first frame; then sample by interval.
-            if (not first_frame_analyzed) or (frame_count % frame_interval == 0):
-                model.analyze_frame(frame)
-                analyzed_count += 1
-                first_frame_analyzed = True
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frame_count += 1
+                # Always attempt first frame; then sample by interval.
+                if (not first_frame_analyzed) or (frame_count % frame_interval == 0):
+                    model.analyze_frame(frame)
+                    analyzed_count += 1
+                    first_frame_analyzed = True
 
-        cap.release()
+            cap.release()
 
-        if analyzed_count == 0:
-            return jsonify({"status": "error", "message": "No frames could be analyzed"}), 422
+            if analyzed_count == 0:
+                return jsonify({"status": "error", "message": "No frames could be analyzed"}), 422
 
-        # Get session-level summary
-        feedback = model.get_session_feedback()
+            # Get session-level summary
+            feedback = model.get_session_feedback()
+
         feedback["status"] = "success"
         feedback["frames_analyzed"] = analyzed_count
 
@@ -707,6 +736,11 @@ def analyze_answer_comprehensive():
             result["overall_score"] = round(
                 sum(s * w for _, s, w in scores) / total_weight, 1
             )
+            
+            # HARD PENALTY: Don't reward good tone if they said nothing of value!
+            if result.get("nlp_score", 0) < 10:
+                result["voice_score"] = 0
+                result["overall_score"] = result.get("nlp_score", 0)
 
         return jsonify(result), 200
 

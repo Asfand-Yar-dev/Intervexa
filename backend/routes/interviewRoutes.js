@@ -346,8 +346,13 @@ router.put('/:sessionId/end', authenticate, asyncHandler(async (req, res) => {
     throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Interview session not found');
   }
 
+  // Idempotent: if already completed (e.g. race between timer and button), just return success
   if (session.status === SESSION_STATUS.COMPLETED) {
-    throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Session is already completed');
+    return res.status(HTTP_STATUS.OK).json({
+      success: true,
+      message: 'Interview session ended',
+      data: session
+    });
   }
 
   session.status = SESSION_STATUS.COMPLETED;
@@ -500,6 +505,7 @@ router.get('/:sessionId/results', authenticate, asyncHandler(async (req, res) =>
   const technicalAvg = avgDim('technicalScore');
   const bodyLanguageAvg = avgDim('bodyLanguageScore');
   const voiceToneAvg = avgDim('voiceToneScore');
+  const facePresenceAvg = avgDim('facePresenceRate');
 
   const allStrengths = [...new Set(scoredAnalysisRows.flatMap(({ analysis: a }) => a.strengths || []))];
   const allImprovements = [...new Set(scoredAnalysisRows.flatMap(({ analysis: a }) => a.improvements || []))];
@@ -522,6 +528,15 @@ router.get('/:sessionId/results', authenticate, asyncHandler(async (req, res) =>
 
   const hasScoredAnswers = scoredAnalysisRows.length > 0;
 
+  // Consider still-processing if: session ended recently (< 3 min) and no answers
+  // have completed yet — catches the edge-case where the page loads before DB writes land.
+  const sessionAge = session.ended_at
+    ? (Date.now() - new Date(session.ended_at).getTime()) / 1000
+    : Infinity;
+  const isStillProcessing =
+    completedAnswers.length < answeredQuestions ||
+    (answeredQuestions === 0 && sessionAge < 180);
+
   const results = {
     sessionId: session._id,
     status: session.status,
@@ -535,6 +550,7 @@ router.get('/:sessionId/results', authenticate, asyncHandler(async (req, res) =>
     overallScore: answeredQuestions > 0 ? overallFromAnswers : 0,
     totalQuestions: session.total_questions || answeredQuestions,
     questionsAnswered: answeredQuestions,
+    isProcessing: isStillProcessing,
     hasEvaluatedAnswers: hasScoredAnswers,
     scores: {
       overall: answeredQuestions > 0 ? overallFromAnswers : 0,
@@ -543,6 +559,7 @@ router.get('/:sessionId/results', authenticate, asyncHandler(async (req, res) =>
       technical: technicalAvg,
       bodyLanguage: bodyLanguageAvg,
       voiceTone: voiceToneAvg,
+      facePresence: facePresenceAvg,
     },
     questionFeedback,
     summary:

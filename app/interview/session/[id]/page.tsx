@@ -58,6 +58,9 @@ export default function InterviewSessionPage() {
 
   const [questions, setQuestions] = useState<InterviewQuestion[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [instructionsAccepted, setInstructionsAccepted] = useState(false);
+  const [globalTimeRemaining, setGlobalTimeRemaining] = useState(600); // 10 minutes limit
   const [isLoading, setIsLoading] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -75,6 +78,15 @@ export default function InterviewSessionPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const videoRecorderRef = useRef<MediaRecorder | null>(null);
   const videoChunksRef = useRef<Blob[]>([]);
+  const isFinishingRef = useRef(false);
+
+  // Live-value refs so the global timer callback never reads stale closures
+  const isRecordingRef = useRef(isRecording);
+  const currentQuestionIndexRef = useRef(currentQuestionIndex);
+  const questionsRef = useRef(questions);
+  useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
+  useEffect(() => { currentQuestionIndexRef.current = currentQuestionIndex; }, [currentQuestionIndex]);
+  useEffect(() => { questionsRef.current = questions; }, [questions]);
 
   const currentQuestion = questions[currentQuestionIndex];
   const progress =
@@ -84,6 +96,8 @@ export default function InterviewSessionPage() {
 
   // Initialize camera and questions
   useEffect(() => {
+    if (!hasStarted) return;
+
     async function init() {
       // 1) Load Gemini-assigned questions for THIS interview session
       try {
@@ -147,7 +161,27 @@ export default function InterviewSessionPage() {
         clearInterval(timerRef.current);
       }
     };
-  }, [sessionId]);
+  }, [sessionId, hasStarted]);
+
+  // Auto-start recording when everything is ready
+  useEffect(() => {
+    if (hasStarted && !isLoading && !permissionError && !isRecording && currentQuestionIndex === 0) {
+      const timer = setTimeout(() => {
+        startRecording();
+      }, 500); // short delay to ensure stream is stable
+      return () => clearTimeout(timer);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasStarted, isLoading, permissionError]);
+
+  // Make sure to attach the camera stream once the loading screen disappears and video mounts
+  useEffect(() => {
+    if (!isLoading && !permissionError && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+      }
+    }
+  }, [isLoading, permissionError, isCameraOn]);
 
   useEffect(() => {
     try {
@@ -307,12 +341,9 @@ export default function InterviewSessionPage() {
     }, 1000);
   };
 
-  // Stop recording and submit
-  const stopRecording = async () => {
+  const stopMediaRecorders = async () => {
     setIsRecording(false);
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
+    if (timerRef.current) clearInterval(timerRef.current);
 
     const audioRecorder = mediaRecorderRef.current;
     const videoRecorder = videoRecorderRef.current;
@@ -324,65 +355,65 @@ export default function InterviewSessionPage() {
         rec.stop();
       });
 
-    // Ensure blobs include final segments
     await Promise.all([stopAndWait(audioRecorder), stopAndWait(videoRecorder)]);
 
     let audioBlob: Blob | undefined;
     let videoBlob: Blob | undefined;
 
     if (audioChunksRef.current.length > 0) {
-      const mimeType = audioRecorder?.mimeType || "audio/webm";
-      audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+      audioBlob = new Blob(audioChunksRef.current, { type: audioRecorder?.mimeType || "audio/webm" });
     }
-
     if (videoChunksRef.current.length > 0) {
-      const mimeType = videoRecorder?.mimeType || "video/webm";
-      videoBlob = new Blob(videoChunksRef.current, { type: mimeType });
+      videoBlob = new Blob(videoChunksRef.current, { type: videoRecorder?.mimeType || "video/webm" });
     }
 
-    if (!audioBlob || audioBlob.size < 1024) {
-      toast.error("Recorded audio is too short or empty. Please record again.");
-      setIsProcessing(false);
-      return;
-    }
-
-    // Face analysis is optional; if video is missing/empty we still submit audio.
     if (!videoBlob || videoBlob.size < 2048) {
       videoBlob = undefined;
     }
 
-    setIsProcessing(true);
+    return { audioBlob, videoBlob, duration: timeElapsed };
+  };
+
+  const submitBackgroundAnswer = async (qId: string, audioBlob?: Blob, videoBlob?: Blob, duration?: number) => {
+    if (!audioBlob || audioBlob.size < 1024) return; // Skip if too short
     try {
-      // Submit answer to backend with actual audio recording
       await answersApi.submit({
-        question_id: currentQuestion.id,
+        question_id: qId,
         session_id: sessionId,
         audio_blob: audioBlob,
         video_blob: videoBlob,
-        audio_duration: timeElapsed,
+        audio_duration: duration || 0,
         answer_text: "", // Background AI will generate transcription
       });
-      toast.success("Answer submitted!");
     } catch (error) {
-      console.error("Failed to submit answer:", error);
-      toast.error("Failed to submit answer");
+      console.error("Background chunk upload failed:", error);
     }
-    setIsProcessing(false);
   };
 
-  // Move to next question
-  const nextQuestion = () => {
+  const handleNextQuestion = async () => {
+    setIsProcessing(true);
+    const qId = currentQuestion.id;
+    const { audioBlob, videoBlob, duration } = await stopMediaRecorders();
+    
+    // Await submission to ensure backend finishes processing before proceeding or redirecting
+    await submitBackgroundAnswer(qId, audioBlob, videoBlob, duration);
+
     if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex((prev) => prev + 1);
       setShowTip(true);
+      startRecording(); // Restart immediately for the next question
+      setIsProcessing(false);
     } else {
-      // Interview complete
       finishInterview();
     }
   };
 
   // Finish interview
   const finishInterview = async () => {
+    // Guard against double invocations (e.g. timer + button click race)
+    if (isFinishingRef.current) return;
+    isFinishingRef.current = true;
+
     setIsLoading(true);
 
     // Stop recording if active
@@ -410,8 +441,16 @@ export default function InterviewSessionPage() {
       router.push(`/interview/results/${sessionId}`);
     } catch (error) {
       console.error("Failed to complete interview:", error);
-      toast.error("Failed to complete interview");
-      setIsLoading(false);
+      // If session was already completed (e.g. from a race with the global timer),
+      // still redirect to results instead of leaving the user stranded.
+      const msg = error instanceof Error ? error.message : "";
+      if (msg.toLowerCase().includes("already completed")) {
+        router.push(`/interview/results/${sessionId}`);
+      } else {
+        toast.error("Failed to complete interview");
+        isFinishingRef.current = false;
+        setIsLoading(false);
+      }
     }
   };
 
@@ -420,6 +459,84 @@ export default function InterviewSessionPage() {
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
+
+  // Global Session Timer
+  useEffect(() => {
+    if (!hasStarted || isLoading || authLoading || questions.length === 0) return;
+    
+    const interval = setInterval(() => {
+      setGlobalTimeRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          
+          // Read LIVE values via refs to avoid stale-closure bugs.
+          const liveQuestions = questionsRef.current;
+          const liveIndex = currentQuestionIndexRef.current;
+          const liveRecording = isRecordingRef.current;
+          const qId = liveQuestions[liveIndex]?.id;
+
+          if (qId && liveRecording) {
+            stopMediaRecorders().then(({ audioBlob, videoBlob, duration }) => {
+              submitBackgroundAnswer(qId, audioBlob, videoBlob, duration).then(() => {
+                finishInterview();
+              });
+            }).catch(() => finishInterview());
+          } else {
+             finishInterview();
+          }
+          
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, authLoading, questions.length]);
+
+  // Don't render if not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  // Instructions Overlay
+  if (!hasStarted) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
+        <div className="max-w-2xl w-full bg-card border border-border/50 rounded-2xl p-8 space-y-6 shadow-sm">
+          <h1 className="text-3xl font-bold text-foreground">Interview Instructions</h1>
+          <div className="space-y-4 text-muted-foreground text-sm leading-relaxed">
+            <p><strong>1. Time Limit:</strong> The total session time is strictly 10 minutes. The session will end automatically.</p>
+            <p><strong>2. Continuous Flow:</strong> Your video and audio will be continuously recorded from the moment you start. The AI evaluates you throughout the session.</p>
+            <p><strong>3. Environment:</strong> Do not refresh or leave this page. Stay in a quiet environment.</p>
+            <p><strong>4. Navigation:</strong> Answer each question clearly, then simply click "Next" to automatically process and move to the next question. There is no pause.</p>
+          </div>
+          <div className="flex items-center gap-3 pt-4 border-t border-border/50">
+            <input 
+              type="checkbox" 
+              id="accepted" 
+              className="w-5 h-5 rounded border-accent text-accent focus:ring-accent accent-accent cursor-pointer"
+              checked={instructionsAccepted}
+              onChange={(e) => setInstructionsAccepted(e.target.checked)}
+            />
+            <label htmlFor="accepted" className="text-foreground font-medium cursor-pointer">
+              I have read and confirm the instructions above.
+            </label>
+          </div>
+          <Button 
+            className="w-full h-12 text-lg font-semibold bg-accent text-accent-foreground hover:bg-accent/90 disabled:opacity-50"
+            disabled={!instructionsAccepted}
+            onClick={() => {
+              setHasStarted(true); // Triggers loading state & camera request
+            }}
+          >
+            Start Interview
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // Show loading while checking auth or initializing
   if (authLoading || isLoading) {
@@ -431,11 +548,6 @@ export default function InterviewSessionPage() {
         </div>
       </div>
     );
-  }
-
-  // Don't render if not authenticated
-  if (!isAuthenticated) {
-    return null;
   }
 
   if (permissionError) {
@@ -490,8 +602,13 @@ export default function InterviewSessionPage() {
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className={`flex items-center gap-2 px-3 py-1 rounded bg-secondary/50 text-sm font-bold ${globalTimeRemaining < 60 ? 'text-destructive animate-pulse' : 'text-foreground'}`}>
               <Clock className="h-4 w-4" />
+              <span>
+                {formatTime(globalTimeRemaining)} Time Left
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>
                 Question {currentQuestionIndex + 1} of {questions.length}
               </span>
@@ -541,10 +658,9 @@ export default function InterviewSessionPage() {
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.8 }}
-                    className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-destructive/90 text-destructive-foreground text-sm font-medium"
+                    className="absolute top-4 left-4 flex items-center justify-center h-4 w-4 rounded-full bg-destructive/90"
                   >
                     <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
-                    Recording {formatTime(timeElapsed)}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -666,55 +782,21 @@ export default function InterviewSessionPage() {
               )}
             </AnimatePresence>
 
-            {/* Recording Controls */}
-            <div className="space-y-4">
-              {!isRecording && !isProcessing && (
-                <Button
-                  onClick={startRecording}
-                  className="w-full h-14 bg-accent text-accent-foreground hover:bg-accent/90 text-lg font-semibold"
-                >
-                  <Mic className="mr-2 h-5 w-5" />
-                  Start Recording Answer
-                </Button>
-              )}
-
-              {isRecording && (
-                <Button
-                  onClick={stopRecording}
-                  variant="destructive"
-                  className="w-full h-14 text-lg font-semibold"
-                >
-                  <CheckCircle className="mr-2 h-5 w-5" />
-                  Stop & Submit Answer
-                </Button>
-              )}
-
-              {isProcessing && (
-                <Button disabled className="w-full h-14 text-lg font-semibold">
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Processing Your Answer...
-                </Button>
-              )}
-
-              {!isRecording && !isProcessing && (
-                <Button
-                  onClick={nextQuestion}
-                  variant="outline"
-                  className="w-full h-12 bg-transparent border-border/50"
-                >
-                  {currentQuestionIndex < questions.length - 1 ? (
-                    <>
-                      Next Question
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </>
-                  ) : (
-                    <>
-                      Finish Interview
-                      <CheckCircle className="ml-2 h-4 w-4" />
-                    </>
-                  )}
-                </Button>
-              )}
+            {/* Action Bar */}
+            <div className="space-y-4 pt-4 border-t border-border/50">
+              <Button
+                onClick={handleNextQuestion}
+                disabled={isProcessing}
+                className="w-full h-14 bg-accent text-accent-foreground hover:bg-accent/90 text-lg font-semibold disabled:opacity-80 disabled:cursor-not-allowed"
+              >
+                {isProcessing ? (
+                  <><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Processing...</>
+                ) : currentQuestionIndex < questions.length - 1 ? (
+                  <>Next <ArrowRight className="ml-2 h-5 w-5" /></>
+                ) : (
+                  <>Finish Interview <CheckCircle className="ml-2 h-5 w-5" /></>
+                )}
+              </Button>
             </div>
 
             {/* Progress Steps */}

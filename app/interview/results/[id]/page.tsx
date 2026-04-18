@@ -20,11 +20,13 @@ interface InterviewFeedback {
   technicalScore: number;
   bodyLanguageScore: number;
   voiceToneScore: number;
+  facePresence: number;
   strengths: string[];
   improvements: string[];
   detailedFeedback: string;
   questionsAnswered: number;
   hasEvaluatedAnswers: boolean;
+  isProcessing: boolean;
 }
 
 export default function ResultsPage() {
@@ -50,17 +52,19 @@ export default function ResultsPage() {
             technicalScore: response.data.scores.technical,
             bodyLanguageScore: response.data.scores.bodyLanguage,
             voiceToneScore: response.data.scores.voiceTone,
+            facePresence: response.data.scores.facePresence ?? 100,
             strengths: response.data.strengths,
             improvements: response.data.improvements,
             detailedFeedback: response.data.summary,
             questionsAnswered: response.data.questionsAnswered ?? 0,
             hasEvaluatedAnswers: response.data.hasEvaluatedAnswers ?? true,
+            isProcessing: response.data.isProcessing ?? false,
           };
           setFeedback(newFeedback)
 
-          // Auto-poll if results are not ready yet (0 overall score implies we are likely still processing)
-          if (newFeedback.questionsAnswered > 0 && (!newFeedback.hasEvaluatedAnswers || newFeedback.overallScore === 0)) {
-            timeoutId = setTimeout(loadResults, 5000);
+          // Auto-poll if results are still being compiled by the AI backend
+          if (newFeedback.isProcessing) {
+            timeoutId = setTimeout(loadResults, 3000);
           }
         }
       } catch (error) {
@@ -150,14 +154,14 @@ export default function ResultsPage() {
           <h1 className="text-3xl font-bold text-foreground mb-2">Interview Complete!</h1>
           
           <div className="text-muted-foreground flex justify-center mt-4">
-            {showMeaningfulScores ? (
-              <p className="max-w-md">Here's your performance breakdown for this session.</p>
-            ) : feedback.questionsAnswered === 0 ? (
-              <p className="max-w-md">No answers were recorded, so there is no score yet.</p>
-            ) : (
+            {feedback.isProcessing ? (
               <div className="flex flex-col items-center gap-3">
                 <p>Please wait, AI is analyzing your results...</p>
               </div>
+            ) : showMeaningfulScores ? (
+              <p className="max-w-md">Here's your performance breakdown for this session.</p>
+            ) : (
+              <p className="max-w-md">No valid spoken answers were detected, so there is no score.</p>
             )}
           </div>
         </motion.div>
@@ -177,7 +181,7 @@ export default function ResultsPage() {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.5, delay: 0.3 }}
             >
-              {showMeaningfulScores ? (
+              {!feedback.isProcessing ? (
                 feedback.overallScore
               ) : (
                 <div className="loader-wrapper mt-4">
@@ -190,7 +194,7 @@ export default function ResultsPage() {
                 </div>
               )}
             </motion.span>
-            {showMeaningfulScores ? (
+            {!feedback.isProcessing ? (
               <span className="text-2xl text-muted-foreground">/100</span>
             ) : null}
           </div>
@@ -221,11 +225,11 @@ export default function ResultsPage() {
               zeroReason="Response lacked the required technical depth or key terminology."
             />
             <ScoreCard
-              label="Body Language"
-              score={feedback.bodyLanguageScore}
+              label={feedback.facePresence < 20 ? "Body Language (Camera Off)" : "Body Language"}
+              score={feedback.facePresence < 20 ? 0 : feedback.bodyLanguageScore}
               color={scoreColors.bodyLanguage}
               delay={0.35}
-              zeroReason="Insufficient visual data or neutral expression detected."
+              zeroReason={feedback.facePresence < 20 ? "Camera was off — body language could not be scored. Turn camera on for this metric." : "Insufficient visual data or neutral expression detected."}
             />
             <ScoreCard 
               label="Voice & Tone" 

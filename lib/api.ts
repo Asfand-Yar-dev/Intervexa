@@ -180,6 +180,7 @@ async function apiRequest<T>(
     method,
     headers: requestHeaders,
     credentials: 'include',
+    cache: 'no-store', // always fetch fresh — prevents stale session/results data
   };
 
   if (body && method !== 'GET') {
@@ -509,6 +510,8 @@ export const interviewApi = {
       questionsAnswered: number;
       /** False when no answer crossed the minimum scoring threshold (e.g. silence only). */
       hasEvaluatedAnswers?: boolean;
+      /** True if AI evaluation is not yet complete for all submitted answers. */
+      isProcessing?: boolean;
       scores: {
         overall: number;
         confidence: number;
@@ -516,6 +519,7 @@ export const interviewApi = {
         technical: number;
         bodyLanguage: number;
         voiceTone: number;
+        facePresence?: number;
       };
       questionFeedback: Array<{
         id: string;

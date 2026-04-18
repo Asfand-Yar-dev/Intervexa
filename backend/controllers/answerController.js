@@ -308,9 +308,10 @@ async function processWithAI(answerId, audioFilePath, videoFilePath) {
 
         const question = await Question.findById(answer.questionId);
         const questionText = question?.questionText || '';
-        // If we don't have an expected answer in DB, use the question text as a reference
-        // so NLP evaluation still produces a non-zero score via the AI gateway.
-        const reference = question?.expectedAnswer || questionText;
+        // Use a proper expected answer if available; otherwise send empty string so the
+        // AI evaluator scores based on answer quality alone rather than comparing the
+        // user's spoken answer against the question text (which always gives low scores).
+        const reference = question?.expectedAnswer || '';
 
         const audioBuffer = await fs.readFile(audioFilePath);
         const videoBuffer = videoFilePath ? await fs.readFile(videoFilePath) : null;
