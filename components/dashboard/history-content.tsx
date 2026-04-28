@@ -1,16 +1,26 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { motion } from "framer-motion"
-import { Calendar, CheckCircle, Search, Filter, Loader2, AlertCircle, RefreshCw, Clock, XCircle } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import { Calendar, CheckCircle, Search, Loader2, AlertCircle, RefreshCw, Clock, XCircle } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from "@/components/ui/pagination"
 import Link from "next/link"
 import { interviewApi, type InterviewSession } from "@/lib/api"
 
 interface DisplaySession {
   id: string
   sessionType: string
+  jobTitle: string
   status: string
   score?: number
   date: string
@@ -19,7 +29,8 @@ interface DisplaySession {
 function mapSessionToDisplay(session: InterviewSession): DisplaySession {
   return {
     id: session._id,
-    sessionType: session.session_type || "Interview Session",
+    sessionType: session.session_type || "mixed",
+    jobTitle: session.jobTitle || "",
     status: session.status,
     score: session.overall_score,
     date: session.createdAt,
@@ -54,19 +65,95 @@ function getStatusLabel(status: string) {
   }
 }
 
+function getScoreColor(score: number) {
+  if (score >= 66) return { stroke: "#22c55e", text: "text-green-500" }
+  if (score >= 41) return { stroke: "#eab308", text: "text-yellow-500" }
+  return { stroke: "#ef4444", text: "text-red-500" }
+}
+
+function ScoreRing({ score }: { score: number }) {
+  const size = 54
+  const strokeWidth = 4
+  const radius = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference - (score / 100) * circumference
+  const { stroke, text } = getScoreColor(score)
+
+  return (
+    <div className="relative flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90" style={{ overflow: "visible" }}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          className="text-secondary"
+        />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: offset }}
+          transition={{ duration: 0.9, ease: "easeOut", delay: 0.1 }}
+        />
+      </svg>
+      <span className={`absolute text-[11px] font-bold tabular-nums leading-none ${text}`}>
+        {score}%
+      </span>
+    </div>
+  )
+}
+
+function getStatusBadgeClass(status: string) {
+  switch (status) {
+    case "completed":
+      return "bg-green-500/10 text-green-500 border-green-500/20"
+    case "ongoing":
+      return "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+    case "cancelled":
+      return "bg-red-500/10 text-red-500 border-red-500/20"
+    default:
+      return "bg-muted text-muted-foreground border-border/50"
+  }
+}
+
+const ITEMS_PER_PAGE = 8
+
+function getPageNumbers(currentPage: number, totalPages: number): (number | "ellipsis-start" | "ellipsis-end")[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1)
+  }
+  if (currentPage <= 4) {
+    return [1, 2, 3, 4, 5, "ellipsis-end", totalPages]
+  }
+  if (currentPage >= totalPages - 3) {
+    return [1, "ellipsis-start", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages]
+  }
+  return [1, "ellipsis-start", currentPage - 1, currentPage, currentPage + 1, "ellipsis-end", totalPages]
+}
+
 export function HistoryContent() {
   const [searchQuery, setSearchQuery] = useState("")
   const [sessions, setSessions] = useState<DisplaySession[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
 
   const loadHistory = useCallback(async () => {
     setIsLoading(true)
     setError(null)
-    
+
     try {
       const response = await interviewApi.getMySessions({ limit: 50 })
-      
+
       if (response.success && response.data) {
         const displaySessions = response.data.sessions.map(mapSessionToDisplay)
         setSessions(displaySessions)
@@ -83,11 +170,24 @@ export function HistoryContent() {
     loadHistory()
   }, [loadHistory])
 
-  const filteredHistory = sessions.filter(
-    (session) =>
-      session.sessionType.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      session.status.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery])
+
+  const filteredHistory = sessions.filter((session) => {
+    const q = searchQuery.toLowerCase()
+    return (
+      session.jobTitle.toLowerCase().includes(q) ||
+      session.sessionType.toLowerCase().includes(q) ||
+      session.status.toLowerCase().includes(q)
+    )
+  })
+
+  const totalPages = Math.max(1, Math.ceil(filteredHistory.length / ITEMS_PER_PAGE))
+  const safeCurrentPage = Math.min(currentPage, totalPages)
+  const startIndex = (safeCurrentPage - 1) * ITEMS_PER_PAGE
+  const paginatedHistory = filteredHistory.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+  const pageNumbers = getPageNumbers(safeCurrentPage, totalPages)
 
   if (isLoading) {
     return (
@@ -153,73 +253,152 @@ export function HistoryContent() {
         transition={{ duration: 0.4, delay: 0.2 }}
         className="rounded-2xl border border-border/50 bg-card overflow-hidden"
       >
-        <div className="divide-y divide-border/50">
-          {filteredHistory.map((session, index) => (
-            <motion.div
-              key={session.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.3, delay: 0.3 + index * 0.05 }}
-              className="flex items-center justify-between p-6 transition-colors hover:bg-secondary/30"
-            >
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10">
-                  {getStatusIcon(session.status)}
-                </div>
-                <div>
-                  <p className="font-medium text-card-foreground capitalize">
-                    {session.sessionType.replace(/_/g, " ")} Interview
-                  </p>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Calendar className="h-3 w-3" />
-                    <span>{new Date(session.date).toLocaleDateString()}</span>
-                    <span>•</span>
-                    <span className="capitalize">{getStatusLabel(session.status)}</span>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={`page-${safeCurrentPage}-${searchQuery}`}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.22 }}
+            className="divide-y divide-border/50"
+          >
+            {paginatedHistory.map((session, index) => (
+              <motion.div
+                key={session.id}
+                initial={{ opacity: 0, x: -16 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.25, delay: index * 0.04 }}
+                className="flex items-center justify-between p-5 sm:p-6 transition-colors hover:bg-secondary/30 group"
+              >
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent/10 group-hover:bg-accent/15 transition-colors">
+                    {getStatusIcon(session.status)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-medium text-card-foreground truncate">
+                      {session.jobTitle || `${session.sessionType.replace(/_/g, " ")} Interview`}
+                    </p>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mt-0.5 flex-wrap">
+                      <Calendar className="h-3 w-3 shrink-0" />
+                      <span>{new Date(session.date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</span>
+                      <span>•</span>
+                      <span className="capitalize">{session.sessionType.replace(/_/g, " ")}</span>
+                      <span className="hidden sm:inline">•</span>
+                      <span
+                        className={`hidden sm:inline px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusBadgeClass(session.status)}`}
+                      >
+                        {getStatusLabel(session.status)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-6">
-                {session.score !== undefined && session.score > 0 && (
-                  <div className="text-right">
-                    <p className="text-2xl font-bold text-card-foreground">{session.score}%</p>
-                    <p className="text-xs text-muted-foreground">Score</p>
-                  </div>
-                )}
-                {session.status === "completed" ? (
-                  <Link href={`/interview/results/${session.id}`}>
-                    <Button variant="outline" size="sm" className="bg-transparent border-border/50">
-                      View Details
-                    </Button>
-                  </Link>
-                ) : session.status === "ongoing" ? (
-                  <Link href={`/interview/session/${session.id}`}>
-                    <Button variant="default" size="sm" className="bg-accent text-accent-foreground">
-                      Continue
-                    </Button>
-                  </Link>
-                ) : null}
-              </div>
-            </motion.div>
-          ))}
 
-          {filteredHistory.length === 0 && (
-            <div className="p-12 text-center">
-              <p className="text-muted-foreground">
-                {sessions.length === 0 
-                  ? "No interview sessions yet. Start your first practice session!" 
-                  : "No sessions found matching your search."}
-              </p>
-              {sessions.length === 0 && (
-                <Link href="/interview/setup">
-                  <Button className="mt-4 bg-accent text-accent-foreground">
-                    Start First Interview
-                  </Button>
-                </Link>
-              )}
-            </div>
-          )}
-        </div>
+                <div className="flex items-center gap-4 sm:gap-5 shrink-0 ml-4">
+                  {session.score !== undefined && session.score > 0 && (
+                    <div className="hidden sm:flex flex-col items-center gap-1">
+                      <ScoreRing score={session.score} />
+                      <span className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase">Score</span>
+                    </div>
+                  )}
+                  {session.status === "completed" ? (
+                    <Link href={`/interview/results/${session.id}`}>
+                      <Button variant="outline" size="sm" className="bg-transparent border-border/50 hover:border-accent/50 hover:text-accent transition-colors">
+                        View Details
+                      </Button>
+                    </Link>
+                  ) : session.status === "ongoing" ? (
+                    <Link href={`/interview/session/${session.id}`}>
+                      <Button variant="default" size="sm" className="bg-accent text-accent-foreground hover:bg-accent/90">
+                        Continue
+                      </Button>
+                    </Link>
+                  ) : null}
+                </div>
+              </motion.div>
+            ))}
+
+            {filteredHistory.length === 0 && (
+              <div className="p-12 text-center">
+                <p className="text-muted-foreground">
+                  {sessions.length === 0
+                    ? "No interview sessions yet. Start your first practice session!"
+                    : "No sessions found matching your search."}
+                </p>
+                {sessions.length === 0 && (
+                  <Link href="/interview/setup">
+                    <Button className="mt-4 bg-accent text-accent-foreground">
+                      Start First Interview
+                    </Button>
+                  </Link>
+                )}
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
       </motion.div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.3 }}
+          className="flex justify-center pt-2"
+        >
+          <Pagination>
+            <PaginationContent className="gap-1">
+              {/* Previous */}
+              <PaginationItem>
+                <PaginationPrevious
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  aria-disabled={safeCurrentPage === 1}
+                  className={
+                    safeCurrentPage === 1
+                      ? "pointer-events-none opacity-40"
+                      : "cursor-pointer hover:bg-accent/10 hover:text-accent transition-colors"
+                  }
+                />
+              </PaginationItem>
+
+              {/* Page numbers */}
+              {pageNumbers.map((page, i) =>
+                page === "ellipsis-start" || page === "ellipsis-end" ? (
+                  <PaginationItem key={`${page}-${i}`}>
+                    <PaginationEllipsis className="text-muted-foreground" />
+                  </PaginationItem>
+                ) : (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setCurrentPage(page as number)}
+                      isActive={safeCurrentPage === page}
+                      className={
+                        safeCurrentPage === page
+                          ? "cursor-default bg-accent text-accent-foreground border-accent font-semibold"
+                          : "cursor-pointer hover:bg-accent/10 hover:text-accent transition-colors"
+                      }
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ),
+              )}
+
+              {/* Next */}
+              <PaginationItem>
+                <PaginationNext
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  aria-disabled={safeCurrentPage === totalPages}
+                  className={
+                    safeCurrentPage === totalPages
+                      ? "pointer-events-none opacity-40"
+                      : "cursor-pointer hover:bg-accent/10 hover:text-accent transition-colors"
+                  }
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </motion.div>
+      )}
     </div>
   )
 }

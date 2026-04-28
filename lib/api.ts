@@ -54,6 +54,8 @@ export interface InterviewSession {
   questions?: string[];
   overall_score?: number;
   createdAt: string;
+  jobTitle?: string;
+  skills?: string[];
 }
 
 export interface Question {

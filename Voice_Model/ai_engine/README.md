@@ -148,7 +148,7 @@ The module includes comprehensive error handling:
 
 - **FileNotFoundError**: Raised when audio file doesn't exist
 - **RuntimeError**: Raised when model loading or processing fails
-- All errors are logged using Python's logging module
+- All errors are logged using Python's logging module.
 
 ## Performance Notes
 
