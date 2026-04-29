@@ -370,6 +370,7 @@ export const authApi = {
       recentSessions: Array<{
         id: string;
         sessionType: string;
+        jobTitle: string;
         status: string;
         score?: number;
         date: string;

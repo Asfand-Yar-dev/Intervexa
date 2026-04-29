@@ -202,12 +202,13 @@ router.get('/stats', authenticate, asyncHandler(async (req, res) => {
   const recentSessions = await InterviewSession.find({ user_id: userId })
     .sort({ createdAt: -1 })
     .limit(5)
-    .select('session_type status overall_score createdAt duration')
+    .select('session_type jobTitle status overall_score createdAt duration')
     .lean();
 
   const recentSessionsFormatted = recentSessions.map(session => ({
     id: session._id,
     sessionType: session.session_type,
+    jobTitle: session.jobTitle || '',
     status: session.status,
     score: session.overall_score,
     date: session.createdAt,

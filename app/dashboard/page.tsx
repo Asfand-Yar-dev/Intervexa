@@ -16,6 +16,7 @@ interface DisplaySession {
   id: string;
   userId: string;
   jobTitle: string;
+  sessionType?: string;
   skills: string[];
   status: "pending" | "in-progress" | "completed";
   score?: number;
@@ -66,7 +67,8 @@ export default function DashboardPage() {
         const mappedSessions: DisplaySession[] = recentSessions.map(session => ({
           id: session.id,
           userId: '',
-          jobTitle: session.sessionType || 'Interview Session',
+          jobTitle: session.jobTitle || 'Interview Session',
+          sessionType: session.sessionType,
           skills: [],
           status: session.status === 'ongoing' ? 'in-progress' : session.status as DisplaySession['status'],
           score: session.score,

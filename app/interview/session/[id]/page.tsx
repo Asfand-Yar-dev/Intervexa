@@ -625,8 +625,8 @@ export default function InterviewSessionPage() {
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto p-6 lg:p-8">
-        <div className="grid gap-8 lg:grid-cols-2">
+      <div className="max-w-7xl mx-auto p-6 lg:p-8">
+        <div className="grid gap-8 lg:grid-cols-[3fr_2fr]">
           {/* Video Preview */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
